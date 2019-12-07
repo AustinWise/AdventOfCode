@@ -7,6 +7,7 @@ enum MyError {
     ProgramParseError,
     InvalidOpCode,
     IndexOutOfRange,
+    AnswerNotFound,
 }
 
 impl Error for MyError {}
@@ -17,6 +18,7 @@ impl fmt::Display for MyError {
             MyError::ProgramParseError => write!(f, "failed to parse program"),
             MyError::InvalidOpCode => write!(f, "invalid opcode"),
             MyError::IndexOutOfRange => write!(f, "index out of range"),
+            MyError::AnswerNotFound => write!(f, "answer not found"),
         }
     }
 }
@@ -64,12 +66,35 @@ fn execute(mem: &mut Vec<u32>) -> Result<(), MyError> {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut mem = parse_program(&std::fs::read_to_string("input.txt")?)?;
+fn part1(source: &Vec<u32>) -> Result<(), MyError> {
+    let mut mem = source.clone();
     mem[1] = 12;
     mem[2] = 2;
     execute(&mut mem)?;
-    println!("pos 0: {}", mem[0]);
+    println!("part 1: {}", mem[0]);
+    return Ok(());
+}
+
+fn part2(source: &Vec<u32>) -> Result<(), MyError> {
+    for noun in 0..100 {
+        for verb in 0..100 {
+            let mut mem = source.clone();
+            mem[1] = noun;
+            mem[2] = verb;
+            execute(&mut mem)?;
+            if (mem[0] == 19690720) {
+                println!("part2: {}", 100 * noun + verb);
+                return Ok(());
+            }
+        }
+    }
+    return Err(MyError::AnswerNotFound);
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let mem = parse_program(&std::fs::read_to_string("input.txt")?)?;
+    part1(&mem);
+    part2(&mem);
     return Result::Ok(());
 }
 
