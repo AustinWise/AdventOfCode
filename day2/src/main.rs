@@ -32,17 +32,17 @@ fn parse_program(input: &str) -> Result<Vec<u32>, MyError> {
             return Err(MyError::ProgramParseError);
         }
     }
-    return Result::Ok(v);
+    Ok(v)
 }
 
-fn get_usize(mem: &Vec<u32>, ndx: usize) -> Result<usize, MyError> {
+fn get_usize(mem: &[u32], ndx: usize) -> Result<usize, MyError> {
     match usize::try_from(mem[ndx]) {
         Ok(num) => Ok(num),
         Err(_) => Err(MyError::IndexOutOfRange),
     }
 }
 
-fn execute(mem: &mut Vec<u32>) -> Result<(), MyError> {
+fn execute(mem: &mut [u32]) -> Result<(), MyError> {
     let mut pc = 0;
     loop {
         match mem[pc] {
@@ -66,36 +66,36 @@ fn execute(mem: &mut Vec<u32>) -> Result<(), MyError> {
     }
 }
 
-fn part1(source: &Vec<u32>) -> Result<(), MyError> {
-    let mut mem = source.clone();
+fn part1(source: &[u32]) -> Result<(), MyError> {
+    let mut mem = source.to_owned();
     mem[1] = 12;
     mem[2] = 2;
     execute(&mut mem)?;
     println!("part 1: {}", mem[0]);
-    return Ok(());
+    Ok(())
 }
 
-fn part2(source: &Vec<u32>) -> Result<(), MyError> {
+fn part2(source: &[u32]) -> Result<(), MyError> {
     for noun in 0..100 {
         for verb in 0..100 {
-            let mut mem = source.clone();
+            let mut mem = source.to_owned();
             mem[1] = noun;
             mem[2] = verb;
             execute(&mut mem)?;
-            if (mem[0] == 19690720) {
+            if mem[0] == 19690720 {
                 println!("part2: {}", 100 * noun + verb);
                 return Ok(());
             }
         }
     }
-    return Err(MyError::AnswerNotFound);
+    Err(MyError::AnswerNotFound)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mem = parse_program(&std::fs::read_to_string("input.txt")?)?;
-    part1(&mem);
-    part2(&mem);
-    return Result::Ok(());
+    part1(&mem)?;
+    part2(&mem)?;
+    Ok(())
 }
 
 #[cfg(test)]
