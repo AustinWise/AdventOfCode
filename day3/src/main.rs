@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::collections::hash_set::HashSet;
+use std::collections::hash_map::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::str::Lines;
@@ -56,18 +56,16 @@ fn get_move_for_spec(movement: &str) -> Result<Movement, MyError> {
         return Err(MyError::LineParseError);
     }
 
-    Ok(Movement {
-        amount,
-        delta,
-    })
+    Ok(Movement { amount, delta })
 }
 
 //this will not set the value at (0, 0)
-fn parse_wire_location(path: &str) -> Result<HashSet<(i32, i32)>, MyError> {
+fn parse_wire_location(path: &str) -> Result<HashMap<(i32, i32), u32>, MyError> {
     let mut cur_x = 0;
     let mut cur_y = 0;
+    let mut cur_length = 0;
 
-    let mut ret = HashSet::new();
+    let mut ret = HashMap::new();
 
     for movement in path.split(',') {
         let spec = get_move_for_spec(movement)?;
@@ -75,15 +73,16 @@ fn parse_wire_location(path: &str) -> Result<HashSet<(i32, i32)>, MyError> {
         for _ in 0..spec.amount {
             cur_x += spec.delta.0;
             cur_y += spec.delta.1;
+            cur_length += 1;
 
             let key = (cur_x, cur_y);
-            ret.insert(key);
+            ret.insert(key, cur_length);
         }
     }
     Ok(ret)
 }
 
-fn parse_next_wire_location(lines: &mut Lines) -> Result<HashSet<(i32, i32)>, MyError> {
+fn parse_next_wire_location(lines: &mut Lines) -> Result<HashMap<(i32, i32), u32>, MyError> {
     if let Some(line) = lines.next() {
         parse_wire_location(line)
     } else {
@@ -91,11 +90,32 @@ fn parse_next_wire_location(lines: &mut Lines) -> Result<HashSet<(i32, i32)>, My
     }
 }
 
-fn find_shortest(map1: &HashSet<(i32, i32)>, map2: &HashSet<(i32, i32)>) -> Option<i32> {
+fn find_closest_intersection_by_manhattan(
+    map1: &HashMap<(i32, i32), u32>,
+    map2: &HashMap<(i32, i32), u32>,
+) -> Option<i32> {
     let mut ret = None;
-    for loc in map1 {
-        if map2.contains(loc) {
+    for loc in map1.keys() {
+        if map2.get(loc).is_some() {
             let dist = loc.0.abs() + loc.1.abs();
+            ret = if let Some(best) = ret {
+                Some(min(dist, best))
+            } else {
+                Some(dist)
+            };
+        }
+    }
+    ret
+}
+
+fn find_closest_intersection_by_wire_length(
+    map1: &HashMap<(i32, i32), u32>,
+    map2: &HashMap<(i32, i32), u32>,
+) -> Option<u32> {
+    let mut ret: Option<u32> = None;
+    for (loc, length1) in map1 {
+        if let Some(length2) = map2.get(loc) {
+            let dist = length1 + length2;
             ret = if let Some(best) = ret {
                 Some(min(dist, best))
             } else {
@@ -111,10 +131,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut lines = file_contents.lines();
     let wire1 = parse_next_wire_location(&mut lines)?;
     let wire2 = parse_next_wire_location(&mut lines)?;
-    if let Some(dist) = find_shortest(&wire1, &wire2) {
-        println!("found dist: {}", dist);
+    if let Some(dist) = find_closest_intersection_by_manhattan(&wire1, &wire2) {
+        println!("found Manhattan dist: {}", dist);
     } else {
-        println!("failed to find dist");
+        println!("failed to find Manhattan dist");
+    }
+    if let Some(dist) = find_closest_intersection_by_wire_length(&wire1, &wire2) {
+        println!("found wire dist: {}", dist);
+    } else {
+        println!("failed to find wire dist");
     }
     Ok(())
 }
@@ -166,7 +191,12 @@ mod test {
         let map2 = parse_wire_location("U7,R6,D4,L4").expect("failed to add");
         assert_eq!(
             6,
-            find_shortest(&map1, &map2).expect("failed to find shortest")
+            find_closest_intersection_by_manhattan(&map1, &map2).expect("failed to find shortest")
+        );
+        assert_eq!(
+            30,
+            find_closest_intersection_by_wire_length(&map1, &map2)
+                .expect("failed to find shortest")
         );
     }
 
@@ -177,7 +207,12 @@ mod test {
         let map2 = parse_wire_location("U62,R66,U55,R34,D71,R55,D58,R83").expect("failed to add");
         assert_eq!(
             159,
-            find_shortest(&map1, &map2).expect("failed to find shortest")
+            find_closest_intersection_by_manhattan(&map1, &map2).expect("failed to find shortest")
+        );
+        assert_eq!(
+            610,
+            find_closest_intersection_by_wire_length(&map1, &map2)
+                .expect("failed to find shortest")
         );
     }
 
@@ -189,7 +224,12 @@ mod test {
             parse_wire_location("U98,R91,D20,R16,D67,R40,U7,R15,U6,R7").expect("failed to add");
         assert_eq!(
             135,
-            find_shortest(&map1, &map2).expect("failed to find shortest")
+            find_closest_intersection_by_manhattan(&map1, &map2).expect("failed to find shortest")
+        );
+        assert_eq!(
+            410,
+            find_closest_intersection_by_wire_length(&map1, &map2)
+                .expect("failed to find shortest")
         );
     }
 }
