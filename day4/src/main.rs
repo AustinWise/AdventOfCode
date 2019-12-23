@@ -27,8 +27,77 @@ fn is_valid_password(password: u32) -> PasswordValidity {
             }
         }
 
-        pass = pass / 10;
+        pass /= 10;
         prev = Some(digit);
+    }
+
+    if num_digits != 6 {
+        PasswordValidity::WrongLength
+    } else if !repeated_digits {
+        PasswordValidity::NoRepeatedDigits
+    } else {
+        PasswordValidity::Valid
+    }
+}
+
+enum DigitState {
+    None,
+    One(u32),
+    Two(u32),
+    More(u32),
+}
+
+fn is_valid_password2(password: u32) -> PasswordValidity {
+    let mut pass = password;
+    let mut num_digits = 0;
+    let mut repeated_digits = false;
+    let mut prev: DigitState = DigitState::None;
+    while pass != 0 {
+        num_digits += 1;
+        let digit = pass % 10;
+
+        {
+            let p = match prev {
+                DigitState::One(p) => p,
+                DigitState::Two(p) => p,
+                DigitState::More(p) => p,
+                DigitState::None => 99, // larger than any possible digit
+            };
+            if p < digit {
+                return PasswordValidity::NotMonotonicallyIncrasing;
+            }
+        }
+
+        pass /= 10;
+        prev = match prev {
+            DigitState::None => DigitState::One(digit),
+            DigitState::One(p) => {
+                if p == digit {
+                    DigitState::Two(digit)
+                } else {
+                    DigitState::One(digit)
+                }
+            }
+            DigitState::Two(p) => {
+                if p == digit {
+                    DigitState::More(digit)
+                } else {
+                    repeated_digits = true;
+                    DigitState::One(digit)
+                }
+            }
+            DigitState::More(p) => {
+                if p == digit {
+                    DigitState::More(digit)
+                } else {
+                    DigitState::One(digit)
+                }
+            }
+        }
+    }
+
+    if let DigitState::Two(_) = prev {
+        repeated_digits = true;
     }
 
     if num_digits != 6 {
@@ -47,7 +116,15 @@ fn main() {
             valid_passwords += 1;
         }
     }
-    println!("valid passwords: {}", valid_passwords);
+    println!("valid passwords part1: {}", valid_passwords);
+
+    let mut valid_passwords = 0;
+    for i in 171309..643603 {
+        if is_valid_password2(i) == PasswordValidity::Valid {
+            valid_passwords += 1;
+        }
+    }
+    println!("valid passwords part2: {}", valid_passwords);
 }
 
 #[cfg(test)]
@@ -65,5 +142,15 @@ mod test {
             PasswordValidity::NoRepeatedDigits,
             is_valid_password(123789)
         );
+    }
+
+    #[test]
+    fn test_password_valitity2() {
+        assert_eq!(PasswordValidity::Valid, is_valid_password2(112233));
+        assert_eq!(
+            PasswordValidity::NoRepeatedDigits,
+            is_valid_password2(123444)
+        );
+        assert_eq!(PasswordValidity::Valid, is_valid_password2(111122));
     }
 }
