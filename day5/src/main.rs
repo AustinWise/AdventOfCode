@@ -13,7 +13,6 @@ enum MyError {
     EOF,
     InputParse,
     IoError(std::io::Error),
-    AnswerNotFound,
 }
 
 impl Error for MyError {}
@@ -28,7 +27,6 @@ impl fmt::Display for MyError {
             MyError::EOF => write!(f, "EOF"),
             MyError::InputParse => write!(f, "Input parse"),
             MyError::IoError(io_err) => write!(f, "io error: {}", io_err),
-            MyError::AnswerNotFound => write!(f, "answer not found"),
         }
     }
 }
@@ -55,6 +53,10 @@ enum Opcode {
     Multiply(ParameterMode, ParameterMode),
     Input,
     Output(ParameterMode),
+    JumpIfTrue(ParameterMode, ParameterMode),
+    JumpIfFalse(ParameterMode, ParameterMode),
+    LessThan(ParameterMode, ParameterMode),
+    Equals(ParameterMode, ParameterMode),
     Exit,
 }
 
@@ -78,6 +80,22 @@ fn parse_instruction(instruction: i32) -> Result<Opcode, MyError> {
         ),
         3 => Opcode::Input,
         4 => Opcode::Output(parse_parameter_mode(instruction / 100 % 10)?),
+        5 => Opcode::JumpIfTrue(
+            parse_parameter_mode(instruction / 100 % 10)?,
+            parse_parameter_mode(instruction / 1000 % 10)?,
+        ),
+        6 => Opcode::JumpIfFalse(
+            parse_parameter_mode(instruction / 100 % 10)?,
+            parse_parameter_mode(instruction / 1000 % 10)?,
+        ),
+        7 => Opcode::LessThan(
+            parse_parameter_mode(instruction / 100 % 10)?,
+            parse_parameter_mode(instruction / 1000 % 10)?,
+        ),
+        8 => Opcode::Equals(
+            parse_parameter_mode(instruction / 100 % 10)?,
+            parse_parameter_mode(instruction / 1000 % 10)?,
+        ),
         99 => Opcode::Exit,
         _ => return Err(MyError::InvalidOpCode),
     };
@@ -86,6 +104,10 @@ fn parse_instruction(instruction: i32) -> Result<Opcode, MyError> {
         Opcode::Multiply(_, _) => 2,
         Opcode::Input => 0,
         Opcode::Output(_) => 1,
+        Opcode::JumpIfTrue(_, _) => 2,
+        Opcode::JumpIfFalse(_, _) => 2,
+        Opcode::LessThan(_, _) => 2,
+        Opcode::Equals(_, _) => 2,
         Opcode::Exit => 0,
     };
     let max_value = (10i32).pow(2 + parameter_mode_count) - 1;
@@ -152,6 +174,44 @@ fn execute(
                 writeln!(output, "{}", load(mem, pc + 1, src_mode)?).unwrap();
                 pc += 2;
             }
+            Opcode::JumpIfTrue(comparand_mode, target_mode) => {
+                pc = if load(mem, pc + 1, comparand_mode)? != 0 {
+                    match usize::try_from(load(mem, pc + 2, target_mode)?) {
+                        Ok(loc) => loc,
+                        Err(_) => return Err(MyError::IndexOutOfRange),
+                    }
+                } else {
+                    pc + 3
+                };
+            }
+            Opcode::JumpIfFalse(comparand_mode, target_mode) => {
+                pc = if load(mem, pc + 1, comparand_mode)? == 0 {
+                    match usize::try_from(load(mem, pc + 2, target_mode)?) {
+                        Ok(loc) => loc,
+                        Err(_) => return Err(MyError::IndexOutOfRange),
+                    }
+                } else {
+                    pc + 3
+                };
+            }
+            Opcode::LessThan(src1_mode, src2_mode) => {
+                let dst = get_usize(&mem, pc + 3)?;
+                mem[dst] = if load(mem, pc + 1, src1_mode)? < load(mem, pc + 2, src2_mode)? {
+                    1
+                } else {
+                    0
+                };
+                pc += 4;
+            }
+            Opcode::Equals(src1_mode, src2_mode) => {
+                let dst = get_usize(&mem, pc + 3)?;
+                mem[dst] = if load(mem, pc + 1, src1_mode)? == load(mem, pc + 2, src2_mode)? {
+                    1
+                } else {
+                    0
+                };
+                pc += 4;
+            }
             Opcode::Exit => return Ok(()),
         }
     }
@@ -195,12 +255,112 @@ mod tests {
         test_a_program("1002,4,3,4,33", "1002,4,3,4,99");
     }
 
+    fn test_io_program(program: &str, input: &str, expected_output: &str) {
+        let mut mem = parse_program(program).expect("failed to parse input");
+        let mut output = Vec::new();
+        execute(&mut mem, &mut std::io::Cursor::new(input), &mut output).expect("execute failed");
+        assert_eq!(expected_output, String::from_utf8(output).unwrap());
+    }
+
     #[test]
     fn test_input_output() {
-        let mut mem = parse_program("3,0,4,0,99").expect("failed to parse input");
-        let mut input = std::io::Cursor::new(b"42\n");
-        let mut output = Vec::new();
-        execute(&mut mem, &mut input, &mut output).expect("execute failed");
-        assert_eq!("Please enter a number: 42\n", String::from_utf8(output).unwrap());
+        test_io_program("3,0,4,0,99", "42\n", "Please enter a number: 42\n");
+        //equal to 8, position mode
+        test_io_program(
+            "3,9,8,9,10,9,4,9,99,-1,8",
+            "8\n",
+            "Please enter a number: 1\n",
+        );
+        test_io_program(
+            "3,9,8,9,10,9,4,9,99,-1,8",
+            "42\n",
+            "Please enter a number: 0\n",
+        );
+        //less than 8, position mode
+        test_io_program(
+            "3,9,7,9,10,9,4,9,99,-1,8",
+            "3\n",
+            "Please enter a number: 1\n",
+        );
+        test_io_program(
+            "3,9,7,9,10,9,4,9,99,-1,8",
+            "8\n",
+            "Please enter a number: 0\n",
+        );
+        test_io_program(
+            "3,9,7,9,10,9,4,9,99,-1,8",
+            "42\n",
+            "Please enter a number: 0\n",
+        );
+        //equal to 8, immediate mode
+        test_io_program(
+            "3,3,1108,-1,8,3,4,3,99",
+            "8\n",
+            "Please enter a number: 1\n",
+        );
+        test_io_program(
+            "3,3,1108,-1,8,3,4,3,99",
+            "42\n",
+            "Please enter a number: 0\n",
+        );
+        //less than 8, immediate mode
+        test_io_program(
+            "3,3,1107,-1,8,3,4,3,99",
+            "3\n",
+            "Please enter a number: 1\n",
+        );
+        test_io_program(
+            "3,3,1107,-1,8,3,4,3,99",
+            "8\n",
+            "Please enter a number: 0\n",
+        );
+        test_io_program(
+            "3,3,1107,-1,8,3,4,3,99",
+            "42\n",
+            "Please enter a number: 0\n",
+        );
+
+        //jumps in position mode
+        test_io_program(
+            "3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9",
+            "0\n",
+            "Please enter a number: 0\n",
+        );
+        test_io_program(
+            "3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9",
+            "1\n",
+            "Please enter a number: 1\n",
+        );
+        test_io_program(
+            "3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9",
+            "42\n",
+            "Please enter a number: 1\n",
+        );
+        //jumps in immediate mode
+        test_io_program(
+            "3,3,1105,-1,9,1101,0,0,12,4,12,99,1",
+            "0\n",
+            "Please enter a number: 0\n",
+        );
+        test_io_program(
+            "3,3,1105,-1,9,1101,0,0,12,4,12,99,1",
+            "1\n",
+            "Please enter a number: 1\n",
+        );
+        test_io_program(
+            "3,3,1105,-1,9,1101,0,0,12,4,12,99,1",
+            "42\n",
+            "Please enter a number: 1\n",
+        );
+
+        let around_eight = "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99";
+        test_io_program(around_eight, "0\n", "Please enter a number: 999\n");
+        test_io_program(around_eight, "1\n", "Please enter a number: 999\n");
+        test_io_program(around_eight, "3\n", "Please enter a number: 999\n");
+        test_io_program(around_eight, "7\n", "Please enter a number: 999\n");
+        test_io_program(around_eight, "8\n", "Please enter a number: 1000\n");
+        test_io_program(around_eight, "9\n", "Please enter a number: 1001\n");
+        test_io_program(around_eight, "10\n", "Please enter a number: 1001\n");
+        test_io_program(around_eight, "42\n", "Please enter a number: 1001\n");
     }
 }
