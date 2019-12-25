@@ -2,7 +2,6 @@ use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::io::BufRead;
-use std::io::BufWriter;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -119,10 +118,9 @@ fn read_number(input: &mut dyn BufRead, output: &mut dyn Write) -> Result<i32, M
     match input.read_line(&mut buf) {
         Ok(0) => Err(MyError::EOF),
         Err(io_err) => Err(MyError::IoError(io_err)),
-        Ok(bytes_read) => match i32::from_str_radix(&buf.trim(), 10) {
+        Ok(_) => match i32::from_str_radix(&buf.trim(), 10) {
             Ok(ret) => Ok(ret),
-            Err(err) => {Err(MyError::InputParse)
-            },
+            Err(_) => Err(MyError::InputParse),
         },
     }
 }
@@ -151,7 +149,7 @@ fn execute(
                 pc += 2;
             }
             Opcode::Output(src_mode) => {
-                writeln!(output, "{}\n", load(mem, pc + 1, src_mode)?);
+                writeln!(output, "{}", load(mem, pc + 1, src_mode)?).unwrap();
                 pc += 2;
             }
             Opcode::Exit => return Ok(()),
@@ -166,7 +164,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         &mut std::io::stdin().lock(),
         &mut std::io::stdout().lock(),
     )?;
-    println!("asdf");
     Ok(())
 }
 
@@ -195,5 +192,15 @@ mod tests {
         test_a_program("2,3,0,3,99", "2,3,0,6,99");
         test_a_program("2,4,4,5,99,0", "2,4,4,5,99,9801");
         test_a_program("1,1,1,4,99,5,6,0,99", "30,1,1,4,2,5,6,0,99");
+        test_a_program("1002,4,3,4,33", "1002,4,3,4,99");
+    }
+
+    #[test]
+    fn test_input_output() {
+        let mut mem = parse_program("3,0,4,0,99").expect("failed to parse input");
+        let mut input = std::io::Cursor::new(b"42\n");
+        let mut output = Vec::new();
+        execute(&mut mem, &mut input, &mut output).expect("execute failed");
+        assert_eq!("Please enter a number: 42\n", String::from_utf8(output).unwrap());
     }
 }
