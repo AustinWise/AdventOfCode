@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::str::Lines;
@@ -8,6 +8,8 @@ enum MyError {
     ParseError,
     DuplicateEntry,
     MissingLink,
+    NodeNotFound,
+    Loop,
 }
 impl Error for MyError {}
 impl fmt::Display for MyError {
@@ -95,9 +97,38 @@ impl OrbitMap {
 
         let mut ret = 0;
         for obj in self.objects.iter().skip(1) {
+            //TODO: memoize
             ret += count_one(self, &obj);
         }
         Ok(ret)
+    }
+
+    fn find_distance_between(&self, a_name: &str, b_name: &str) -> Result<usize, MyError> {
+        self.validate()?;
+
+        let a_ndx = match self.object_names.get(a_name) {
+            Some(ndx) => *ndx,
+            None => return Err(MyError::NodeNotFound),
+        };
+        let b_ndx = match self.object_names.get(b_name) {
+            Some(ndx) => *ndx,
+            None => return Err(MyError::NodeNotFound),
+        };
+
+        let mut a_nodes = HashSet::new();
+        {
+            let mut ndx = a_ndx;
+            while ndx != 0 {
+                if ! a_nodes.insert(ndx) {
+                    return Err(MyError::Loop);
+                }
+                let node = &self.objects[ndx];
+                ndx = node.parent.unwrap();
+            }
+            a_nodes.insert(0);
+        }
+
+        todo!();
     }
 }
 
@@ -108,6 +139,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "total number of orbits: {}",
         oribit_map.total_number_of_orbits()?
+    );
+    println!(
+        "transfer distance: {}",
+        oribit_map.find_distance_between("YOU", "SAN")?
     );
     Ok(())
 }
@@ -148,5 +183,26 @@ K)L";
         map.add_lines(&mut map_text.lines())
             .expect("failed to add lines");
         assert_eq!(42, map.total_number_of_orbits().expect("failed to count"));
+    }
+
+    #[test]
+    fn test_sameple_distance() {
+        let map_text = "COM)B
+B)C
+C)D
+D)E
+E)F
+B)G
+G)H
+D)I
+E)J
+J)K
+K)L
+K)YOU
+I)SAN";
+        let mut map = OrbitMap::new();
+        map.add_lines(&mut map_text.lines())
+            .expect("failed to add lines");
+        assert_eq!(4, map.find_distance_between("YOU", "SAN").unwrap());
     }
 }
