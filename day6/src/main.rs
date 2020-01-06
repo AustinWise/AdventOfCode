@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::str::Lines;
@@ -115,20 +115,39 @@ impl OrbitMap {
             None => return Err(MyError::NodeNotFound),
         };
 
-        let mut a_nodes = HashSet::new();
-        {
+        let a_nodes = {
+            let mut count = 0;
+            let mut a_nodes = HashMap::new();
             let mut ndx = a_ndx;
             while ndx != 0 {
-                if ! a_nodes.insert(ndx) {
+                if a_nodes.insert(ndx, count).is_some() {
                     return Err(MyError::Loop);
                 }
                 let node = &self.objects[ndx];
                 ndx = node.parent.unwrap();
+                count += 1;
             }
-            a_nodes.insert(0);
+            a_nodes.insert(0, count);
+            a_nodes
+        };
+
+        let mut b_distance = 0;
+        let mut common_parent = b_ndx;
+        loop {
+            if a_nodes.contains_key(&common_parent) {
+                break;
+            } else if common_parent == 0 {
+                return Err(MyError::NodeNotFound);
+            } else {
+                common_parent = self.objects[common_parent].parent.unwrap();
+                b_distance += 1;
+            }
         }
 
-        todo!();
+        //The above code calculates the number of edges from each node to the common parent node.
+        //Since we want to not count moving from ourselves to the orbited planet, substrate one
+        //for each starting node.
+        Ok(b_distance + a_nodes[&common_parent] - 2)
     }
 }
 
