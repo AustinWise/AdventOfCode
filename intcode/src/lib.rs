@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::BufRead;
 use std::io::Write;
+use std::num::ParseIntError;
 
 #[derive(Debug)]
 pub enum IntcodeError {
@@ -11,11 +12,17 @@ pub enum IntcodeError {
     InvalidOpCode,
     IndexOutOfRange,
     EOF,
-    InputParse,
+    IntParse(ParseIntError),
     IoError(std::io::Error),
 }
 
 impl Error for IntcodeError {}
+
+impl From<ParseIntError> for IntcodeError {
+    fn from(err: ParseIntError) -> IntcodeError {
+        IntcodeError::IntParse(err)
+    }
+}
 
 impl fmt::Display for IntcodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -25,7 +32,7 @@ impl fmt::Display for IntcodeError {
             IntcodeError::InvalidOpCode => write!(f, "invalid opcode"),
             IntcodeError::IndexOutOfRange => write!(f, "index out of range"),
             IntcodeError::EOF => write!(f, "EOF"),
-            IntcodeError::InputParse => write!(f, "Input parse"),
+            IntcodeError::IntParse(int_parse_error) => write!(f, "Int parse: {}", int_parse_error),
             IntcodeError::IoError(io_err) => write!(f, "io error: {}", io_err),
         }
     }
@@ -33,7 +40,7 @@ impl fmt::Display for IntcodeError {
 
 pub fn parse_program(input: &str) -> Result<Vec<i32>, IntcodeError> {
     let mut v: Vec<i32> = Vec::new();
-    for num_str in input.split(',') {
+    for num_str in input.trim().split(',') {
         if let Ok(num) = i32::from_str_radix(num_str, 10) {
             v.push(num);
         } else {
@@ -134,23 +141,20 @@ fn load(mem: &[i32], index: usize, mode: ParameterMode) -> Result<i32, IntcodeEr
 }
 
 fn read_number(input: &mut dyn BufRead, output: &mut dyn Write) -> Result<i32, IntcodeError> {
-    write!(output, "Please enter a number: ").unwrap();
     output.flush().unwrap();
     let mut buf = String::new();
     match input.read_line(&mut buf) {
         Ok(0) => Err(IntcodeError::EOF),
         Err(io_err) => Err(IntcodeError::IoError(io_err)),
-        Ok(_) => match i32::from_str_radix(&buf.trim(), 10) {
-            Ok(ret) => Ok(ret),
-            Err(_) => Err(IntcodeError::InputParse),
-        },
+        Ok(_) => Ok(i32::from_str_radix(&buf.trim(), 10)?),
     }
 }
 
-pub fn execute(
+fn execute_opts(
     mem: &mut [i32],
     input: &mut dyn BufRead,
     output: &mut dyn Write,
+    prompt: bool,
 ) -> Result<(), IntcodeError> {
     let mut pc = 0;
     loop {
@@ -166,6 +170,9 @@ pub fn execute(
                 pc += 4;
             }
             Opcode::Input => {
+                if prompt {
+                    write!(output, "Please enter a number: ").unwrap();
+                }
                 let dst = get_usize(&mem, pc + 1)?;
                 mem[dst] = read_number(input, output)?;
                 pc += 2;
@@ -217,9 +224,23 @@ pub fn execute(
     }
 }
 
-pub fn execute_no_io(
-    mem: &mut [i32]
+pub fn execute(
+    mem: &mut [i32],
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
+    execute_opts(mem, input, output, true)
+}
+
+pub fn execute_no_prompt(
+    mem: &mut [i32],
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+) -> Result<(), IntcodeError> {
+    execute_opts(mem, input, output, false)
+}
+
+pub fn execute_no_io(mem: &mut [i32]) -> Result<(), IntcodeError> {
     execute(mem, &mut std::io::empty(), &mut std::io::sink())
 }
 

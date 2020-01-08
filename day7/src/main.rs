@@ -32,13 +32,40 @@ fn permutation(number_of_perms: u32) -> Vec<Vec<i32>> {
     ret
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    //let mut mem = intcode::parse_program(&std::fs::read_to_string("input.txt")?)?;
-
-    let things = permutation(5);
-    for f in things {
-        println!("{:?}", f);
+fn run_amplifier_controller_program(
+    program: &Vec<i32>,
+    phase_setting: &Vec<i32>,
+) -> Result<i32, Box<dyn Error>> {
+    let mut input: i32 = 0;
+    for phase in phase_setting {
+        let input_str = format!("{}\n{}\n", phase, input);
+        let mut output_buf = Vec::new();
+        let mut program_copy = program.to_owned();
+        intcode::execute_no_prompt(
+            &mut program_copy,
+            &mut std::io::Cursor::new(input_str),
+            &mut output_buf,
+        )?;
+        let output_str = std::string::String::from_utf8(output_buf)?;
+        input = output_str.trim().parse()?;
     }
+    Ok(input)
+}
+
+fn find_max_thruster(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
+    let mut max_thrust = i32::min_value();
+
+    for phase_setting in permutation(5) {
+        max_thrust = max_thrust.max(run_amplifier_controller_program(program, &phase_setting)?);
+    }
+
+    Ok(max_thrust)
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let program = intcode::parse_program(&std::fs::read_to_string("input.txt")?)?;
+
+    println!("max thrust: {}", find_max_thruster(&program)?);
 
     Ok(())
 }
@@ -53,12 +80,32 @@ mod test {
         assert_eq!(permutation(0), empty);
         assert_eq!(permutation(1), [[0]]);
         assert_eq!(permutation(2), [[0, 1], [1, 0]]);
-        assert_eq!(permutation(3), [
-            [0, 1, 2],
-            [0, 2, 1],
-            [1, 0, 2],
-            [1, 2, 0],
-            [2, 0, 1],
-            [2, 1, 0]]);
+        assert_eq!(
+            permutation(3),
+            [
+                [0, 1, 2],
+                [0, 2, 1],
+                [1, 0, 2],
+                [1, 2, 0],
+                [2, 0, 1],
+                [2, 1, 0]
+            ]
+        );
+    }
+
+    #[test]
+    fn test_find_max_thrust() {
+        let program = intcode::parse_program("3,15,3,16,1002,16,10,16,1,16,15,15,4,15,99,0,0")
+            .expect("parse program");
+        assert_eq!(43210, find_max_thruster(&program).expect("find max thrust"));
+
+        let program = intcode::parse_program(
+            "3,23,3,24,1002,24,10,24,1002,23,-1,23,101,5,23,23,1,24,23,23,4,23,99,0,0",
+        )
+        .expect("parse program");
+        assert_eq!(54321, find_max_thruster(&program).expect("find max thrust"));
+
+        let program = intcode::parse_program("3,31,3,32,1002,32,10,32,1001,31,-2,31,1007,31,0,33,1002,33,7,33,1,33,31,31,1,32,31,31,4,31,99,0,0,0").expect("parse program");
+        assert_eq!(65210, find_max_thruster(&program).expect("find max thrust"));
     }
 }
