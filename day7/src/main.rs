@@ -5,7 +5,7 @@ extern crate intcode;
 
 //TODO: make this not allocate so much?
 //TODO: make this a generator?
-fn permutation(number_of_perms: u32) -> Vec<Vec<i32>> {
+fn permutation(begin: i32, number_of_perms: u32) -> Vec<Vec<i32>> {
     fn inner(result: &mut Vec<Vec<i32>>, prefix: &Vec<i32>, to_perm: &Vec<i32>) {
         if to_perm.len() == 0 {
             result.push(prefix.to_owned());
@@ -22,7 +22,8 @@ fn permutation(number_of_perms: u32) -> Vec<Vec<i32>> {
 
     let mut to_perm: Vec<i32> = Vec::new();
     for i in 0..number_of_perms {
-        to_perm.push(i.try_into().unwrap());
+        let signed: i32 = i.try_into().unwrap();
+        to_perm.push(begin + signed);
     }
 
     let mut ret = Vec::new();
@@ -55,7 +56,7 @@ fn run_amplifier_controller_program(
 fn find_max_thruster(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
     let mut max_thrust = i32::min_value();
 
-    for phase_setting in permutation(5) {
+    for phase_setting in permutation(0, 5) {
         max_thrust = max_thrust.max(run_amplifier_controller_program(program, &phase_setting)?);
     }
 
@@ -77,11 +78,11 @@ mod test {
     #[test]
     fn test_perm() {
         let empty: Vec<Vec<i32>> = Vec::new();
-        assert_eq!(permutation(0), empty);
-        assert_eq!(permutation(1), [[0]]);
-        assert_eq!(permutation(2), [[0, 1], [1, 0]]);
+        assert_eq!(permutation(0, 0), empty);
+        assert_eq!(permutation(0, 1), [[0]]);
+        assert_eq!(permutation(0, 2), [[0, 1], [1, 0]]);
         assert_eq!(
-            permutation(3),
+            permutation(0, 3),
             [
                 [0, 1, 2],
                 [0, 2, 1],
@@ -89,6 +90,25 @@ mod test {
                 [1, 2, 0],
                 [2, 0, 1],
                 [2, 1, 0]
+            ]
+        );
+    }
+
+    #[test]
+    fn test_perm_oft() {
+        let empty: Vec<Vec<i32>> = Vec::new();
+        assert_eq!(permutation(5, 0), empty);
+        assert_eq!(permutation(5, 1), [[5]]);
+        assert_eq!(permutation(5, 2), [[5, 6], [6, 5]]);
+        assert_eq!(
+            permutation(5, 3),
+            [
+                [5, 6, 7],
+                [5, 7, 6],
+                [6, 5, 7],
+                [6, 7, 5],
+                [7, 5, 6],
+                [7, 6, 5]
             ]
         );
     }
