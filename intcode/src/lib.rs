@@ -24,6 +24,12 @@ impl From<ParseIntError> for IntcodeError {
     }
 }
 
+impl From<std::io::Error> for IntcodeError {
+    fn from(err: std::io::Error) -> IntcodeError {
+        IntcodeError::IoError(err)
+    }
+}
+
 impl fmt::Display for IntcodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -140,21 +146,53 @@ fn load(mem: &[i32], index: usize, mode: ParameterMode) -> Result<i32, IntcodeEr
     Ok(ret)
 }
 
-fn read_number(input: &mut dyn BufRead, output: &mut dyn Write) -> Result<i32, IntcodeError> {
-    output.flush().unwrap();
-    let mut buf = String::new();
-    match input.read_line(&mut buf) {
-        Ok(0) => Err(IntcodeError::EOF),
-        Err(io_err) => Err(IntcodeError::IoError(io_err)),
-        Ok(_) => Ok(i32::from_str_radix(&buf.trim(), 10)?),
+trait ReadNumber {
+    fn read_number(&mut self) -> Result<i32, IntcodeError>;
+}
+
+struct BufReadNumber<'a> {
+    buf_read: &'a mut dyn BufRead,
+}
+
+impl ReadNumber for BufReadNumber<'_> {
+    fn read_number(&mut self) -> Result<i32, IntcodeError> {
+        let mut buf = String::new();
+        match self.buf_read.read_line(&mut buf)? {
+            0 => Err(IntcodeError::EOF),
+            _ => Ok(i32::from_str_radix(&buf.trim(), 10)?),
+        }
+    }
+}
+
+trait WriteNumber {
+    fn write_number(&mut self, num: i32) -> Result<(), IntcodeError>;
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
+}
+
+struct WriteWriteNumber<'a> {
+    output: &'a mut dyn Write,
+    prompt: bool,
+}
+
+impl WriteNumber for WriteWriteNumber<'_> {
+    fn write_number(&mut self, num: i32) -> Result<(), IntcodeError> {
+        writeln!(self.output, "{}", num)?;
+        Ok(())
+    }
+
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
+        if self.prompt {
+            write!(self.output, "Please enter a number: ")?;
+            self.output.flush()?;
+        }
+        Ok(())
     }
 }
 
 fn execute_opts(
     mem: &mut [i32],
-    input: &mut dyn BufRead,
-    output: &mut dyn Write,
-    prompt: bool,
+    input: &mut dyn ReadNumber,
+    output: &mut dyn WriteNumber,
 ) -> Result<(), IntcodeError> {
     let mut pc = 0;
     loop {
@@ -170,15 +208,13 @@ fn execute_opts(
                 pc += 4;
             }
             Opcode::Input => {
-                if prompt {
-                    write!(output, "Please enter a number: ").unwrap();
-                }
+                output.prompt_for_number()?;
                 let dst = get_usize(&mem, pc + 1)?;
-                mem[dst] = read_number(input, output)?;
+                mem[dst] = input.read_number()?;
                 pc += 2;
             }
             Opcode::Output(src_mode) => {
-                writeln!(output, "{}", load(mem, pc + 1, src_mode)?).unwrap();
+                output.write_number(load(mem, pc + 1, src_mode)?)?;
                 pc += 2;
             }
             Opcode::JumpIfTrue(comparand_mode, target_mode) => {
@@ -229,7 +265,12 @@ pub fn execute(
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
-    execute_opts(mem, input, output, true)
+    let mut input_trait_object = BufReadNumber { buf_read: input };
+    let mut output_trait_object = WriteWriteNumber {
+        output: output,
+        prompt: true,
+    };
+    execute_opts(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 pub fn execute_no_prompt(
@@ -237,7 +278,12 @@ pub fn execute_no_prompt(
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
-    execute_opts(mem, input, output, false)
+    let mut input_trait_object = BufReadNumber { buf_read: input };
+    let mut output_trait_object = WriteWriteNumber {
+        output: output,
+        prompt: false,
+    };
+    execute_opts(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 pub fn execute_no_io(mem: &mut [i32]) -> Result<(), IntcodeError> {
