@@ -4,6 +4,7 @@ use std::fmt;
 use std::io::BufRead;
 use std::io::Write;
 use std::num::ParseIntError;
+use std::sync::mpsc::{Receiver, RecvError, SendError, SyncSender};
 
 #[derive(Debug)]
 pub enum IntcodeError {
@@ -14,6 +15,8 @@ pub enum IntcodeError {
     EOF,
     IntParse(ParseIntError),
     IoError(std::io::Error),
+    RecvError(RecvError),
+    SendError(SendError<i32>),
 }
 
 impl Error for IntcodeError {}
@@ -30,6 +33,18 @@ impl From<std::io::Error> for IntcodeError {
     }
 }
 
+impl From<RecvError> for IntcodeError {
+    fn from(err: RecvError) -> IntcodeError {
+        IntcodeError::RecvError(err)
+    }
+}
+
+impl From<SendError<i32>> for IntcodeError {
+    fn from(err: SendError<i32>) -> IntcodeError {
+        IntcodeError::SendError(err)
+    }
+}
+
 impl fmt::Display for IntcodeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -40,6 +55,8 @@ impl fmt::Display for IntcodeError {
             IntcodeError::EOF => write!(f, "EOF"),
             IntcodeError::IntParse(int_parse_error) => write!(f, "Int parse: {}", int_parse_error),
             IntcodeError::IoError(io_err) => write!(f, "io error: {}", io_err),
+            IntcodeError::RecvError(recv_err) => write!(f, "recv error: {}", recv_err),
+            IntcodeError::SendError(send_err) => write!(f, "send error: {}", send_err),
         }
     }
 }
@@ -164,6 +181,12 @@ impl ReadNumber for BufReadNumber<'_> {
     }
 }
 
+impl ReadNumber for Receiver<i32> {
+    fn read_number(&mut self) -> Result<i32, IntcodeError> {
+        Ok(self.recv()?)
+    }
+}
+
 trait WriteNumber {
     fn write_number(&mut self, num: i32) -> Result<(), IntcodeError>;
     fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
@@ -189,7 +212,18 @@ impl WriteNumber for WriteWriteNumber<'_> {
     }
 }
 
-fn execute_opts(
+impl WriteNumber for SyncSender<i32> {
+    fn write_number(&mut self, num: i32) -> Result<(), IntcodeError> {
+        self.send(num)?;
+        Ok(())
+    }
+
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
+        Ok(())
+    }
+}
+
+fn execute_inner(
     mem: &mut [i32],
     input: &mut dyn ReadNumber,
     output: &mut dyn WriteNumber,
@@ -270,7 +304,7 @@ pub fn execute(
         output: output,
         prompt: true,
     };
-    execute_opts(mem, &mut input_trait_object, &mut output_trait_object)
+    execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 pub fn execute_no_prompt(
@@ -283,16 +317,25 @@ pub fn execute_no_prompt(
         output: output,
         prompt: false,
     };
-    execute_opts(mem, &mut input_trait_object, &mut output_trait_object)
+    execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 pub fn execute_no_io(mem: &mut [i32]) -> Result<(), IntcodeError> {
     execute(mem, &mut std::io::empty(), &mut std::io::sink())
 }
 
+pub fn execute_with_channel(
+    mem: &mut [i32],
+    input: &mut Receiver<i32>,
+    output: &mut SyncSender<i32>,
+) -> Result<(), IntcodeError> {
+    execute_inner(mem, input, output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc::sync_channel;
 
     #[test]
     fn test_parse() {
@@ -425,5 +468,28 @@ mod tests {
         test_io_program(around_eight, "9\n", "Please enter a number: 1001\n");
         test_io_program(around_eight, "10\n", "Please enter a number: 1001\n");
         test_io_program(around_eight, "42\n", "Please enter a number: 1001\n");
+    }
+
+    fn test_channel_io_helper(input: i32, expected_output: i32) {
+        let around_eight = "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99";
+        let mut mem = parse_program(around_eight).expect("failed to parse input");
+        let (input_send, mut input_recv) = sync_channel(1);
+        let (mut output_send, output_recv) = sync_channel(1);
+        input_send.send(input).expect("failed to send input");
+        execute_with_channel(&mut mem, &mut input_recv, &mut output_send)
+            .expect("failed to execute");
+        assert_eq!(expected_output, output_recv.recv().expect("failed to recv"));
+    }
+
+    #[test]
+    fn test_channel_io() {
+        test_channel_io_helper(0, 999);
+        test_channel_io_helper(1, 999);
+        test_channel_io_helper(3, 999);
+        test_channel_io_helper(7, 999);
+        test_channel_io_helper(8, 1000);
+        test_channel_io_helper(9, 1001);
+        test_channel_io_helper(10, 1001);
+        test_channel_io_helper(42, 1001);
     }
 }
