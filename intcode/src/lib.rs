@@ -171,6 +171,10 @@ struct BufReadNumber<'a> {
     buf_read: &'a mut dyn BufRead,
 }
 
+struct ChannelReadNumber<'a> {
+    input: &'a Receiver<i32>,
+}
+
 impl ReadNumber for BufReadNumber<'_> {
     fn read_number(&mut self) -> Result<i32, IntcodeError> {
         let mut buf = String::new();
@@ -181,9 +185,9 @@ impl ReadNumber for BufReadNumber<'_> {
     }
 }
 
-impl ReadNumber for Receiver<i32> {
+impl ReadNumber for ChannelReadNumber<'_> {
     fn read_number(&mut self) -> Result<i32, IntcodeError> {
-        Ok(self.recv()?)
+        Ok(self.input.recv()?)
     }
 }
 
@@ -195,6 +199,10 @@ trait WriteNumber {
 struct WriteWriteNumber<'a> {
     output: &'a mut dyn Write,
     prompt: bool,
+}
+
+struct ChannelWriteNumber {
+    output: SyncSender<i32>,
 }
 
 impl WriteNumber for WriteWriteNumber<'_> {
@@ -212,9 +220,9 @@ impl WriteNumber for WriteWriteNumber<'_> {
     }
 }
 
-impl WriteNumber for SyncSender<i32> {
+impl WriteNumber for ChannelWriteNumber {
     fn write_number(&mut self, num: i32) -> Result<(), IntcodeError> {
-        self.send(num)?;
+        self.output.send(num)?;
         Ok(())
     }
 
@@ -326,10 +334,12 @@ pub fn execute_no_io(mem: &mut [i32]) -> Result<(), IntcodeError> {
 
 pub fn execute_with_channel(
     mem: &mut [i32],
-    input: &mut Receiver<i32>,
-    output: &mut SyncSender<i32>,
+    input: &Receiver<i32>,
+    output: SyncSender<i32>,
 ) -> Result<(), IntcodeError> {
-    execute_inner(mem, input, output)
+    let mut input_trait_object = ChannelReadNumber { input: &input };
+    let mut output_trait_object = ChannelWriteNumber { output: output };
+    execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 #[cfg(test)]
@@ -473,11 +483,10 @@ mod tests {
     fn test_channel_io_helper(input: i32, expected_output: i32) {
         let around_eight = "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99";
         let mut mem = parse_program(around_eight).expect("failed to parse input");
-        let (input_send, mut input_recv) = sync_channel(1);
-        let (mut output_send, output_recv) = sync_channel(1);
+        let (input_send, input_recv) = sync_channel(1);
+        let (output_send, output_recv) = sync_channel(1);
         input_send.send(input).expect("failed to send input");
-        execute_with_channel(&mut mem, &mut input_recv, &mut output_send)
-            .expect("failed to execute");
+        execute_with_channel(&mut mem, &input_recv, output_send).expect("failed to execute");
         assert_eq!(expected_output, output_recv.recv().expect("failed to recv"));
     }
 

@@ -1,5 +1,7 @@
 use std::convert::TryInto;
 use std::error::Error;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::thread;
 
 extern crate intcode;
 
@@ -63,10 +65,94 @@ fn find_max_thruster(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
     Ok(max_thrust)
 }
 
+fn run_amplifier_controller_program_part(
+    program: Vec<i32>,
+    input: Receiver<i32>,
+    output: SyncSender<i32>,
+) -> Result<(), intcode::IntcodeError> {
+    let mut mem = program;
+    intcode::execute_with_channel(&mut mem, &input, output)
+}
+
+fn pump_feedback(
+    input: Receiver<i32>,
+    output: SyncSender<i32>,
+) -> Result<i32, intcode::IntcodeError> {
+    let mut res = None;
+    loop {
+        let num = match input.recv() {
+            Ok(num) => num,
+            Err(_) => return Ok(res.unwrap()),
+        };
+        res = Some(num);
+        //We want the last value sent from the Receiver. So ignore sending errors.
+        //It should not be possible for the first amplifier thread to shut down
+        //before the last value is produced on the amplifier. But we ignore errors
+        //just in case that assumption is not true.
+        let _ = output.send(num);
+    }
+}
+
+fn run_amplifier_controller_program_feedback(
+    program: &Vec<i32>,
+    phase_setting: &Vec<i32>,
+) -> Result<i32, intcode::IntcodeError> {
+    let (feedback_front_send, feedback_front_recv) = sync_channel::<i32>(10);
+    let (send1, recv1) = sync_channel::<i32>(10);
+    let (send2, recv2) = sync_channel::<i32>(10);
+    let (send3, recv3) = sync_channel::<i32>(10);
+    let (send4, recv4) = sync_channel::<i32>(10);
+    let (feedback_back_send, feedback_back_recv) = sync_channel::<i32>(10);
+    feedback_front_send.send(phase_setting[0])?;
+    feedback_front_send.send(0)?;
+    send1.send(phase_setting[1])?;
+    send2.send(phase_setting[2])?;
+    send3.send(phase_setting[3])?;
+    send4.send(phase_setting[4])?;
+    let mem1 = program.to_owned();
+    let mem2 = program.to_owned();
+    let mem3 = program.to_owned();
+    let mem4 = program.to_owned();
+    let mem5 = program.to_owned();
+
+    let jh1 = thread::spawn(move || {
+        run_amplifier_controller_program_part(mem1, feedback_front_recv, send1)
+    });
+    let jh2 = thread::spawn(move || run_amplifier_controller_program_part(mem2, recv1, send2));
+    let jh3 = thread::spawn(move || run_amplifier_controller_program_part(mem3, recv2, send3));
+    let jh4 = thread::spawn(move || run_amplifier_controller_program_part(mem4, recv3, send4));
+    let jh5 = thread::spawn(move || {
+        run_amplifier_controller_program_part(mem5, recv4, feedback_back_send)
+    });
+    let pumper = thread::spawn(move || pump_feedback(feedback_back_recv, feedback_front_send));
+
+    jh1.join().unwrap()?;
+    jh2.join().unwrap()?;
+    jh3.join().unwrap()?;
+    jh4.join().unwrap()?;
+    jh5.join().unwrap()?;
+    Ok(pumper.join().unwrap()?)
+}
+
+fn find_max_thruster_feedback(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
+    let mut max_thrust = i32::min_value();
+
+    for phase_setting in permutation(5, 5) {
+        let this_thrust = run_amplifier_controller_program_feedback(program, &phase_setting)?;
+        max_thrust = max_thrust.max(this_thrust);
+    }
+
+    Ok(max_thrust)
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let program = intcode::parse_program(&std::fs::read_to_string("input.txt")?)?;
 
-    println!("max thrust: {}", find_max_thruster(&program)?);
+    println!("max thrust - part1: {}", find_max_thruster(&program)?);
+    println!(
+        "max thrust - part2: {}",
+        find_max_thruster_feedback(&program)?
+    );
 
     Ok(())
 }
@@ -127,5 +213,26 @@ mod test {
 
         let program = intcode::parse_program("3,31,3,32,1002,32,10,32,1001,31,-2,31,1007,31,0,33,1002,33,7,33,1,33,31,31,1,32,31,31,4,31,99,0,0,0").expect("parse program");
         assert_eq!(65210, find_max_thruster(&program).expect("find max thrust"));
+    }
+
+    #[test]
+    fn test_find_max_thrust_feedback() {
+        let program = intcode::parse_program(
+            "3,26,1001,26,-4,26,3,27,1002,27,2,27,1,27,26,27,4,27,1001,28,-1,28,1005,28,6,99,0,0,5",
+        )
+        .expect("parse program");
+        assert_eq!(
+            139629729,
+            find_max_thruster_feedback(&program).expect("find max thrust")
+        );
+
+        let program = intcode::parse_program(
+            "3,52,1001,52,-5,52,3,53,1,52,56,54,1007,54,5,55,1005,55,26,1001,54,-5,54,1105,1,12,1,53,54,53,1008,54,0,55,1001,55,1,55,2,53,55,53,4,53,1001,56,-1,56,1005,56,6,99,0,0,0,0,10",
+        )
+        .expect("parse program");
+        assert_eq!(
+            18216,
+            find_max_thruster_feedback(&program).expect("find max thrust")
+        );
     }
 }
