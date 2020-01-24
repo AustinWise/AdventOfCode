@@ -231,11 +231,11 @@ impl WriteNumber for ChannelWriteNumber {
     }
 }
 
-fn execute_inner(
-    mem: &mut [i32],
-    input: &mut dyn ReadNumber,
-    output: &mut dyn WriteNumber,
-) -> Result<(), IntcodeError> {
+fn execute_inner<R, W>(mem: &mut [i32], input: &mut R, output: &mut W) -> Result<(), IntcodeError>
+where
+    R: ReadNumber,
+    W: WriteNumber,
+{
     let mut pc = 0;
     loop {
         match parse_instruction(mem[pc])? {
