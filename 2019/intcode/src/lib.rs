@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::error::Error;
 use std::fmt;
 use std::io::BufRead;
@@ -16,7 +18,7 @@ pub enum IntcodeError {
     IntParse(ParseIntError),
     IoError(std::io::Error),
     RecvError(RecvError),
-    SendError(SendError<i32>),
+    SendError(SendError<i64>),
 }
 
 impl Error for IntcodeError {}
@@ -39,8 +41,8 @@ impl From<RecvError> for IntcodeError {
     }
 }
 
-impl From<SendError<i32>> for IntcodeError {
-    fn from(err: SendError<i32>) -> IntcodeError {
+impl From<SendError<i64>> for IntcodeError {
+    fn from(err: SendError<i64>) -> IntcodeError {
         IntcodeError::SendError(err)
     }
 }
@@ -61,10 +63,10 @@ impl fmt::Display for IntcodeError {
     }
 }
 
-pub fn parse_program(input: &str) -> Result<Vec<i32>, IntcodeError> {
-    let mut v: Vec<i32> = Vec::new();
+pub fn parse_program(input: &str) -> Result<Vec<i64>, IntcodeError> {
+    let mut v: Vec<i64> = Vec::new();
     for num_str in input.trim().split(',') {
-        if let Ok(num) = i32::from_str_radix(num_str, 10) {
+        if let Ok(num) = i64::from_str_radix(num_str, 10) {
             v.push(num);
         } else {
             return Err(IntcodeError::ProgramParseError);
@@ -76,6 +78,7 @@ pub fn parse_program(input: &str) -> Result<Vec<i32>, IntcodeError> {
 enum ParameterMode {
     Position,
     Immediate,
+    Relative,
 }
 
 enum Opcode {
@@ -87,18 +90,20 @@ enum Opcode {
     JumpIfFalse(ParameterMode, ParameterMode),
     LessThan(ParameterMode, ParameterMode),
     Equals(ParameterMode, ParameterMode),
+    AdjustsRelativeBase(ParameterMode),
     Exit,
 }
 
-fn parse_parameter_mode(parameter_digit: i32) -> Result<ParameterMode, IntcodeError> {
+fn parse_parameter_mode(parameter_digit: i64) -> Result<ParameterMode, IntcodeError> {
     match parameter_digit {
         0 => Ok(ParameterMode::Position),
         1 => Ok(ParameterMode::Immediate),
+        2 => Ok(ParameterMode::Relative),
         _ => Err(IntcodeError::InvalidParameterMode),
     }
 }
 
-fn parse_instruction(instruction: i32) -> Result<Opcode, IntcodeError> {
+fn parse_instruction(instruction: i64) -> Result<Opcode, IntcodeError> {
     let ret = match instruction % 100 {
         1 => Opcode::Add(
             parse_parameter_mode(instruction / 100 % 10)?,
@@ -126,6 +131,7 @@ fn parse_instruction(instruction: i32) -> Result<Opcode, IntcodeError> {
             parse_parameter_mode(instruction / 100 % 10)?,
             parse_parameter_mode(instruction / 1000 % 10)?,
         ),
+        9 => Opcode::AdjustsRelativeBase(parse_parameter_mode(instruction / 100 % 10)?),
         99 => Opcode::Exit,
         _ => return Err(IntcodeError::InvalidOpCode),
     };
@@ -138,9 +144,10 @@ fn parse_instruction(instruction: i32) -> Result<Opcode, IntcodeError> {
         Opcode::JumpIfFalse(_, _) => 2,
         Opcode::LessThan(_, _) => 2,
         Opcode::Equals(_, _) => 2,
+        Opcode::AdjustsRelativeBase(_) => 1,
         Opcode::Exit => 0,
     };
-    let max_value = (10i32).pow(2 + parameter_mode_count) - 1;
+    let max_value = (10i64).pow(2 + parameter_mode_count) - 1;
     if instruction > max_value {
         Err(IntcodeError::InvalidOpCode)
     } else {
@@ -148,23 +155,8 @@ fn parse_instruction(instruction: i32) -> Result<Opcode, IntcodeError> {
     }
 }
 
-fn get_usize(mem: &[i32], ndx: usize) -> Result<usize, IntcodeError> {
-    match usize::try_from(mem[ndx]) {
-        Ok(num) => Ok(num),
-        Err(_) => Err(IntcodeError::IndexOutOfRange),
-    }
-}
-
-fn load(mem: &[i32], index: usize, mode: ParameterMode) -> Result<i32, IntcodeError> {
-    let ret = match mode {
-        ParameterMode::Position => mem[get_usize(mem, index)?],
-        ParameterMode::Immediate => mem[index],
-    };
-    Ok(ret)
-}
-
 trait ReadNumber {
-    fn read_number(&mut self) -> Result<i32, IntcodeError>;
+    fn read_number(&mut self) -> Result<i64, IntcodeError>;
 }
 
 struct BufReadNumber<'a> {
@@ -172,27 +164,27 @@ struct BufReadNumber<'a> {
 }
 
 struct ChannelReadNumber<'a> {
-    input: &'a Receiver<i32>,
+    input: &'a Receiver<i64>,
 }
 
 impl ReadNumber for BufReadNumber<'_> {
-    fn read_number(&mut self) -> Result<i32, IntcodeError> {
+    fn read_number(&mut self) -> Result<i64, IntcodeError> {
         let mut buf = String::new();
         match self.buf_read.read_line(&mut buf)? {
             0 => Err(IntcodeError::EOF),
-            _ => Ok(i32::from_str_radix(&buf.trim(), 10)?),
+            _ => Ok(i64::from_str_radix(&buf.trim(), 10)?),
         }
     }
 }
 
 impl ReadNumber for ChannelReadNumber<'_> {
-    fn read_number(&mut self) -> Result<i32, IntcodeError> {
+    fn read_number(&mut self) -> Result<i64, IntcodeError> {
         Ok(self.input.recv()?)
     }
 }
 
 trait WriteNumber {
-    fn write_number(&mut self, num: i32) -> Result<(), IntcodeError>;
+    fn write_number(&mut self, num: i64) -> Result<(), IntcodeError>;
     fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
 }
 
@@ -202,11 +194,11 @@ struct WriteWriteNumber<'a> {
 }
 
 struct ChannelWriteNumber {
-    output: SyncSender<i32>,
+    output: SyncSender<i64>,
 }
 
 impl WriteNumber for WriteWriteNumber<'_> {
-    fn write_number(&mut self, num: i32) -> Result<(), IntcodeError> {
+    fn write_number(&mut self, num: i64) -> Result<(), IntcodeError> {
         writeln!(self.output, "{}", num)?;
         Ok(())
     }
@@ -221,7 +213,7 @@ impl WriteNumber for WriteWriteNumber<'_> {
 }
 
 impl WriteNumber for ChannelWriteNumber {
-    fn write_number(&mut self, num: i32) -> Result<(), IntcodeError> {
+    fn write_number(&mut self, num: i64) -> Result<(), IntcodeError> {
         self.output.send(num)?;
         Ok(())
     }
@@ -231,79 +223,164 @@ impl WriteNumber for ChannelWriteNumber {
     }
 }
 
-fn execute_inner<R, W>(mem: &mut [i32], input: &mut R, output: &mut W) -> Result<(), IntcodeError>
+struct CpuState<'a, R, W>
 where
     R: ReadNumber,
     W: WriteNumber,
 {
-    let mut pc = 0;
-    loop {
-        match parse_instruction(mem[pc])? {
-            Opcode::Add(src1_mode, src2_mode) => {
-                let dst = get_usize(&mem, pc + 3)?;
-                mem[dst] = load(mem, pc + 1, src1_mode)? + load(mem, pc + 2, src2_mode)?;
-                pc += 4;
+    pc: i64,
+    relative_base: i64,
+    mem: HashMap<i64, i64>,
+    input: &'a mut R,
+    output: &'a mut W,
+}
+
+impl<R, W> CpuState<'_, R, W>
+where
+    R: ReadNumber,
+    W: WriteNumber,
+{
+    fn create<'a>(mem: &[i64], input: &'a mut R, output: &'a mut W) -> CpuState<'a, R, W> {
+        let mut mem_map: HashMap<i64, i64> = HashMap::with_capacity(mem.len()); //TODO: consider using a faster hasher
+        for (i, num) in mem.iter().enumerate() {
+            mem_map.insert(i.try_into().unwrap(), *num);
+        }
+        CpuState {
+            pc: 0,
+            relative_base: 0,
+            mem: mem_map,
+            input,
+            output,
+        }
+    }
+
+    fn load_raw(&self, index: i64) -> Result<i64, IntcodeError> {
+        if index < 0 {
+            Err(IntcodeError::IndexOutOfRange)
+        } else if let Some(num) = self.mem.get(&index) {
+            Ok(*num)
+        } else {
+            Ok(0)
+        }
+    }
+
+    fn store_raw(&mut self, index: i64, value: i64) -> Result<(), IntcodeError> {
+        if index < 0 {
+            Err(IntcodeError::IndexOutOfRange)
+        } else {
+            self.mem.insert(index, value);
+            Ok(())
+        }
+    }
+
+    fn load(&self, pc_rel: i64, mode: ParameterMode) -> Result<i64, IntcodeError> {
+        let ret = match mode {
+            ParameterMode::Position => self.load_raw(self.load_raw(self.pc + pc_rel)?),
+            ParameterMode::Immediate => self.load_raw(self.pc + pc_rel),
+            ParameterMode::Relative => {
+                self.load_raw(self.relative_base + self.load_raw(self.pc + pc_rel)?)
             }
-            Opcode::Multiply(src1_mode, src2_mode) => {
-                let dst = get_usize(&mem, pc + 3)?;
-                mem[dst] = load(mem, pc + 1, src1_mode)? * load(mem, pc + 2, src2_mode)?;
-                pc += 4;
+        };
+        ret
+    }
+
+    fn execute(&mut self) -> Result<(), IntcodeError> {
+        loop {
+            match parse_instruction(self.load_raw(self.pc)?)? {
+                Opcode::Add(src1_mode, src2_mode) => {
+                    let dst = self.load(3, ParameterMode::Immediate)?;
+                    self.store_raw(dst, self.load(1, src1_mode)? + self.load(2, src2_mode)?)?;
+                    self.pc += 4;
+                }
+                Opcode::Multiply(src1_mode, src2_mode) => {
+                    let dst = self.load(3, ParameterMode::Immediate)?;
+                    self.store_raw(dst, self.load(1, src1_mode)? * self.load(2, src2_mode)?)?;
+                    self.pc += 4;
+                }
+                Opcode::Input => {
+                    self.output.prompt_for_number()?;
+                    let dst = self.load(1, ParameterMode::Immediate)?;
+                    let value = self.input.read_number()?;
+                    self.store_raw(dst, value)?;
+                    self.pc += 2;
+                }
+                Opcode::Output(src_mode) => {
+                    self.output.write_number(self.load(1, src_mode)?)?;
+                    self.pc += 2;
+                }
+                Opcode::JumpIfTrue(comparand_mode, target_mode) => {
+                    self.pc = if self.load(1, comparand_mode)? != 0 {
+                        match i64::try_from(self.load(2, target_mode)?) {
+                            Ok(loc) => loc,
+                            Err(_) => return Err(IntcodeError::IndexOutOfRange),
+                        }
+                    } else {
+                        self.pc + 3
+                    };
+                }
+                Opcode::JumpIfFalse(comparand_mode, target_mode) => {
+                    self.pc = if self.load(1, comparand_mode)? == 0 {
+                        match i64::try_from(self.load(2, target_mode)?) {
+                            Ok(loc) => loc,
+                            Err(_) => return Err(IntcodeError::IndexOutOfRange),
+                        }
+                    } else {
+                        self.pc + 3
+                    };
+                }
+                Opcode::LessThan(src1_mode, src2_mode) => {
+                    let dst = self.load(3, ParameterMode::Immediate)?;
+                    self.store_raw(
+                        dst,
+                        if self.load(1, src1_mode)? < self.load(2, src2_mode)? {
+                            1
+                        } else {
+                            0
+                        },
+                    )?;
+                    self.pc += 4;
+                }
+                Opcode::Equals(src1_mode, src2_mode) => {
+                    let dst = self.load(3, ParameterMode::Immediate)?;
+                    self.store_raw(
+                        dst,
+                        if self.load(1, src1_mode)? == self.load(2, src2_mode)? {
+                            1
+                        } else {
+                            0
+                        },
+                    )?;
+                    self.pc += 4;
+                }
+                Opcode::AdjustsRelativeBase(mode) => {
+                    self.relative_base += self.load(1, mode)?;
+                    self.pc += 2;
+                }
+                Opcode::Exit => return Ok(()),
             }
-            Opcode::Input => {
-                output.prompt_for_number()?;
-                let dst = get_usize(&mem, pc + 1)?;
-                mem[dst] = input.read_number()?;
-                pc += 2;
-            }
-            Opcode::Output(src_mode) => {
-                output.write_number(load(mem, pc + 1, src_mode)?)?;
-                pc += 2;
-            }
-            Opcode::JumpIfTrue(comparand_mode, target_mode) => {
-                pc = if load(mem, pc + 1, comparand_mode)? != 0 {
-                    match usize::try_from(load(mem, pc + 2, target_mode)?) {
-                        Ok(loc) => loc,
-                        Err(_) => return Err(IntcodeError::IndexOutOfRange),
-                    }
-                } else {
-                    pc + 3
-                };
-            }
-            Opcode::JumpIfFalse(comparand_mode, target_mode) => {
-                pc = if load(mem, pc + 1, comparand_mode)? == 0 {
-                    match usize::try_from(load(mem, pc + 2, target_mode)?) {
-                        Ok(loc) => loc,
-                        Err(_) => return Err(IntcodeError::IndexOutOfRange),
-                    }
-                } else {
-                    pc + 3
-                };
-            }
-            Opcode::LessThan(src1_mode, src2_mode) => {
-                let dst = get_usize(&mem, pc + 3)?;
-                mem[dst] = if load(mem, pc + 1, src1_mode)? < load(mem, pc + 2, src2_mode)? {
-                    1
-                } else {
-                    0
-                };
-                pc += 4;
-            }
-            Opcode::Equals(src1_mode, src2_mode) => {
-                let dst = get_usize(&mem, pc + 3)?;
-                mem[dst] = if load(mem, pc + 1, src1_mode)? == load(mem, pc + 2, src2_mode)? {
-                    1
-                } else {
-                    0
-                };
-                pc += 4;
-            }
-            Opcode::Exit => return Ok(()),
         }
     }
 }
 
+fn execute_inner<R, W>(mem: &mut [i64], input: &mut R, output: &mut W) -> Result<(), IntcodeError>
+where
+    R: ReadNumber,
+    W: WriteNumber,
+{
+    let mut cpu = CpuState::create(mem, input, output);
+    if let Err(err) = cpu.execute() {
+        Err(err)
+    } else {
+        //Copy the changed memory back into the input array
+        for (i, value) in mem.iter_mut().enumerate() {
+            *value = cpu.load_raw(i.try_into().unwrap())?;
+        }
+        Ok(())
+    }
+}
+
 pub fn execute(
-    mem: &mut [i32],
+    mem: &mut [i64],
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
@@ -316,7 +393,7 @@ pub fn execute(
 }
 
 pub fn execute_no_prompt(
-    mem: &mut [i32],
+    mem: &mut [i64],
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
@@ -328,14 +405,14 @@ pub fn execute_no_prompt(
     execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
-pub fn execute_no_io(mem: &mut [i32]) -> Result<(), IntcodeError> {
+pub fn execute_no_io(mem: &mut [i64]) -> Result<(), IntcodeError> {
     execute(mem, &mut std::io::empty(), &mut std::io::sink())
 }
 
 pub fn execute_with_channel(
-    mem: &mut [i32],
-    input: &Receiver<i32>,
-    output: SyncSender<i32>,
+    mem: &mut [i64],
+    input: &Receiver<i64>,
+    output: SyncSender<i64>,
 ) -> Result<(), IntcodeError> {
     let mut input_trait_object = ChannelReadNumber { input: &input };
     let mut output_trait_object = ChannelWriteNumber { output };
@@ -485,7 +562,7 @@ mod tests {
         test_io_program(AROUND_EIGHT, "42\n", "Please enter a number: 1001\n");
     }
 
-    fn test_channel_io_helper(input: i32, expected_output: i32) {
+    fn test_channel_io_helper(input: i64, expected_output: i64) {
         let mut mem = parse_program(AROUND_EIGHT).expect("failed to parse input");
         let (input_send, input_recv) = sync_channel(1);
         let (output_send, output_recv) = sync_channel(1);
@@ -530,5 +607,27 @@ mod tests {
             Err(IntcodeError::SendError(_)) => {}
             other => panic!("unexpected result: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_large_number() {
+        //Math
+        test_io_program(
+            "1102,34915192,34915192,7,4,7,99,0",
+            "",
+            "1219070632396864\n",
+        );
+        //IO
+        test_io_program("104,1125899906842624,99", "", "1125899906842624\n");
+    }
+
+    #[test]
+    fn test_relative_base() {
+        //Quine
+        test_io_program(
+            "109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99",
+            "",
+            "109\n1\n204\n-1\n1001\n100\n1\n100\n1008\n100\n16\n101\n1006\n101\n0\n99\n",
+        );
     }
 }

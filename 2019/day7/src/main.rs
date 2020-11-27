@@ -7,8 +7,8 @@ extern crate intcode;
 
 //TODO: make this not allocate so much?
 //TODO: make this a generator?
-fn permutation(begin: i32, number_of_perms: u32) -> Vec<Vec<i32>> {
-    fn inner(result: &mut Vec<Vec<i32>>, prefix: &Vec<i32>, to_perm: &Vec<i32>) {
+fn permutation(begin: i64, number_of_perms: u64) -> Vec<Vec<i64>> {
+    fn inner(result: &mut Vec<Vec<i64>>, prefix: &Vec<i64>, to_perm: &Vec<i64>) {
         if to_perm.len() == 0 {
             result.push(prefix.to_owned());
         } else {
@@ -22,9 +22,9 @@ fn permutation(begin: i32, number_of_perms: u32) -> Vec<Vec<i32>> {
         }
     }
 
-    let mut to_perm: Vec<i32> = Vec::new();
+    let mut to_perm: Vec<i64> = Vec::new();
     for i in 0..number_of_perms {
-        let signed: i32 = i.try_into().unwrap();
+        let signed: i64 = i.try_into().unwrap();
         to_perm.push(begin + signed);
     }
 
@@ -36,10 +36,10 @@ fn permutation(begin: i32, number_of_perms: u32) -> Vec<Vec<i32>> {
 }
 
 fn run_amplifier_controller_program(
-    program: &Vec<i32>,
-    phase_setting: &Vec<i32>,
-) -> Result<i32, Box<dyn Error>> {
-    let mut input: i32 = 0;
+    program: &Vec<i64>,
+    phase_setting: &Vec<i64>,
+) -> Result<i64, Box<dyn Error>> {
+    let mut input: i64 = 0;
     for phase in phase_setting {
         let input_str = format!("{}\n{}\n", phase, input);
         let mut output_buf = Vec::new();
@@ -55,8 +55,8 @@ fn run_amplifier_controller_program(
     Ok(input)
 }
 
-fn find_max_thruster(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
-    let mut max_thrust = i32::min_value();
+fn find_max_thruster(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
+    let mut max_thrust = i64::min_value();
 
     for phase_setting in permutation(0, 5) {
         max_thrust = max_thrust.max(run_amplifier_controller_program(program, &phase_setting)?);
@@ -66,18 +66,18 @@ fn find_max_thruster(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
 }
 
 fn run_amplifier_controller_program_part(
-    program: Vec<i32>,
-    input: Receiver<i32>,
-    output: SyncSender<i32>,
+    program: Vec<i64>,
+    input: Receiver<i64>,
+    output: SyncSender<i64>,
 ) -> Result<(), intcode::IntcodeError> {
     let mut mem = program;
     intcode::execute_with_channel(&mut mem, &input, output)
 }
 
 fn pump_feedback(
-    input: Receiver<i32>,
-    output: SyncSender<i32>,
-) -> Result<i32, intcode::IntcodeError> {
+    input: Receiver<i64>,
+    output: SyncSender<i64>,
+) -> Result<i64, intcode::IntcodeError> {
     let mut res = None;
     loop {
         let num = match input.recv() {
@@ -94,15 +94,15 @@ fn pump_feedback(
 }
 
 fn run_amplifier_controller_program_feedback(
-    program: &Vec<i32>,
-    phase_setting: &Vec<i32>,
-) -> Result<i32, intcode::IntcodeError> {
-    let (feedback_front_send, feedback_front_recv) = sync_channel::<i32>(10);
-    let (send1, recv1) = sync_channel::<i32>(10);
-    let (send2, recv2) = sync_channel::<i32>(10);
-    let (send3, recv3) = sync_channel::<i32>(10);
-    let (send4, recv4) = sync_channel::<i32>(10);
-    let (feedback_back_send, feedback_back_recv) = sync_channel::<i32>(10);
+    program: &Vec<i64>,
+    phase_setting: &Vec<i64>,
+) -> Result<i64, intcode::IntcodeError> {
+    let (feedback_front_send, feedback_front_recv) = sync_channel::<i64>(10);
+    let (send1, recv1) = sync_channel::<i64>(10);
+    let (send2, recv2) = sync_channel::<i64>(10);
+    let (send3, recv3) = sync_channel::<i64>(10);
+    let (send4, recv4) = sync_channel::<i64>(10);
+    let (feedback_back_send, feedback_back_recv) = sync_channel::<i64>(10);
     feedback_front_send.send(phase_setting[0])?;
     feedback_front_send.send(0)?;
     send1.send(phase_setting[1])?;
@@ -134,8 +134,8 @@ fn run_amplifier_controller_program_feedback(
     Ok(pumper.join().unwrap()?)
 }
 
-fn find_max_thruster_feedback(program: &Vec<i32>) -> Result<i32, Box<dyn Error>> {
-    let mut max_thrust = i32::min_value();
+fn find_max_thruster_feedback(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
+    let mut max_thrust = i64::min_value();
 
     for phase_setting in permutation(5, 5) {
         let this_thrust = run_amplifier_controller_program_feedback(program, &phase_setting)?;
@@ -163,7 +163,7 @@ mod test {
 
     #[test]
     fn test_perm() {
-        let empty: Vec<Vec<i32>> = Vec::new();
+        let empty: Vec<Vec<i64>> = Vec::new();
         assert_eq!(permutation(0, 0), empty);
         assert_eq!(permutation(0, 1), [[0]]);
         assert_eq!(permutation(0, 2), [[0, 1], [1, 0]]);
@@ -182,7 +182,7 @@ mod test {
 
     #[test]
     fn test_perm_oft() {
-        let empty: Vec<Vec<i32>> = Vec::new();
+        let empty: Vec<Vec<i64>> = Vec::new();
         assert_eq!(permutation(5, 0), empty);
         assert_eq!(permutation(5, 1), [[5]]);
         assert_eq!(permutation(5, 2), [[5, 6], [6, 5]]);
