@@ -309,7 +309,7 @@ pub fn execute(
 ) -> Result<(), IntcodeError> {
     let mut input_trait_object = BufReadNumber { buf_read: input };
     let mut output_trait_object = WriteWriteNumber {
-        output: output,
+        output,
         prompt: true,
     };
     execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
@@ -322,7 +322,7 @@ pub fn execute_no_prompt(
 ) -> Result<(), IntcodeError> {
     let mut input_trait_object = BufReadNumber { buf_read: input };
     let mut output_trait_object = WriteWriteNumber {
-        output: output,
+        output,
         prompt: false,
     };
     execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
@@ -338,7 +338,7 @@ pub fn execute_with_channel(
     output: SyncSender<i32>,
 ) -> Result<(), IntcodeError> {
     let mut input_trait_object = ChannelReadNumber { input: &input };
-    let mut output_trait_object = ChannelWriteNumber { output: output };
+    let mut output_trait_object = ChannelWriteNumber { output };
     execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
@@ -346,6 +346,12 @@ pub fn execute_with_channel(
 mod tests {
     use super::*;
     use std::sync::mpsc::sync_channel;
+
+    //Takes a single number, x, as input. Outputs one number under depending on x:
+    //  x <  8 => 999
+    //  x == 8 => 1000
+    //  x >  8 => 1001
+    const AROUND_EIGHT : &str = "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99";
 
     #[test]
     fn test_parse() {
@@ -469,20 +475,18 @@ mod tests {
             "Please enter a number: 1\n",
         );
 
-        let around_eight = "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99";
-        test_io_program(around_eight, "0\n", "Please enter a number: 999\n");
-        test_io_program(around_eight, "1\n", "Please enter a number: 999\n");
-        test_io_program(around_eight, "3\n", "Please enter a number: 999\n");
-        test_io_program(around_eight, "7\n", "Please enter a number: 999\n");
-        test_io_program(around_eight, "8\n", "Please enter a number: 1000\n");
-        test_io_program(around_eight, "9\n", "Please enter a number: 1001\n");
-        test_io_program(around_eight, "10\n", "Please enter a number: 1001\n");
-        test_io_program(around_eight, "42\n", "Please enter a number: 1001\n");
+        test_io_program(AROUND_EIGHT, "0\n", "Please enter a number: 999\n");
+        test_io_program(AROUND_EIGHT, "1\n", "Please enter a number: 999\n");
+        test_io_program(AROUND_EIGHT, "3\n", "Please enter a number: 999\n");
+        test_io_program(AROUND_EIGHT, "7\n", "Please enter a number: 999\n");
+        test_io_program(AROUND_EIGHT, "8\n", "Please enter a number: 1000\n");
+        test_io_program(AROUND_EIGHT, "9\n", "Please enter a number: 1001\n");
+        test_io_program(AROUND_EIGHT, "10\n", "Please enter a number: 1001\n");
+        test_io_program(AROUND_EIGHT, "42\n", "Please enter a number: 1001\n");
     }
 
     fn test_channel_io_helper(input: i32, expected_output: i32) {
-        let around_eight = "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99";
-        let mut mem = parse_program(around_eight).expect("failed to parse input");
+        let mut mem = parse_program(AROUND_EIGHT).expect("failed to parse input");
         let (input_send, input_recv) = sync_channel(1);
         let (output_send, output_recv) = sync_channel(1);
         input_send.send(input).expect("failed to send input");
@@ -500,5 +504,31 @@ mod tests {
         test_channel_io_helper(9, 1001);
         test_channel_io_helper(10, 1001);
         test_channel_io_helper(42, 1001);
+    }
+
+    #[test]
+    fn test_channel_io_closed_input() {
+        let mut mem = parse_program(AROUND_EIGHT).expect("failed to parse input");
+        let (input_send, input_recv) = sync_channel(1);
+        let (output_send, output_recv) = sync_channel(1);
+        drop(input_send);
+        match execute_with_channel(&mut mem, &input_recv, output_send) {
+            Err(IntcodeError::RecvError(_)) => {}
+            other => panic!("unexpected result: {:?}", other),
+        }
+        output_recv.recv().expect_err("expected error on recv");
+    }
+
+    #[test]
+    fn test_channel_io_closed_output() {
+        let mut mem = parse_program(AROUND_EIGHT).expect("failed to parse input");
+        let (input_send, input_recv) = sync_channel(1);
+        let (output_send, output_recv) = sync_channel(1);
+        drop(output_recv);
+        input_send.send(0).expect("failed to send input");
+        match execute_with_channel(&mut mem, &input_recv, output_send) {
+            Err(IntcodeError::SendError(_)) => {}
+            other => panic!("unexpected result: {:?}", other),
+        }
     }
 }
