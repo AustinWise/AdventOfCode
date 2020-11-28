@@ -12,7 +12,7 @@ use std::sync::mpsc::{Receiver, RecvError, SendError, SyncSender};
 pub enum IntcodeError {
     ProgramParseError,
     InvalidParameterMode,
-    InvalidOpCode,
+    InvalidOpCode(i64),
     IndexOutOfRange,
     EOF,
     IntParse(ParseIntError),
@@ -52,7 +52,7 @@ impl fmt::Display for IntcodeError {
         match self {
             IntcodeError::ProgramParseError => write!(f, "failed to parse program"),
             IntcodeError::InvalidParameterMode => write!(f, "invalid parameter mode"),
-            IntcodeError::InvalidOpCode => write!(f, "invalid opcode"),
+            IntcodeError::InvalidOpCode(invalid) => write!(f, "invalid opcode: {}", invalid),
             IntcodeError::IndexOutOfRange => write!(f, "index out of range"),
             IntcodeError::EOF => write!(f, "EOF"),
             IntcodeError::IntParse(int_parse_error) => write!(f, "Int parse: {}", int_parse_error),
@@ -82,14 +82,14 @@ enum ParameterMode {
 }
 
 enum Opcode {
-    Add(ParameterMode, ParameterMode),
-    Multiply(ParameterMode, ParameterMode),
-    Input,
+    Add(ParameterMode, ParameterMode, ParameterMode),
+    Multiply(ParameterMode, ParameterMode, ParameterMode),
+    Input(ParameterMode),
     Output(ParameterMode),
     JumpIfTrue(ParameterMode, ParameterMode),
     JumpIfFalse(ParameterMode, ParameterMode),
-    LessThan(ParameterMode, ParameterMode),
-    Equals(ParameterMode, ParameterMode),
+    LessThan(ParameterMode, ParameterMode, ParameterMode),
+    Equals(ParameterMode, ParameterMode, ParameterMode),
     AdjustsRelativeBase(ParameterMode),
     Exit,
 }
@@ -108,12 +108,14 @@ fn parse_instruction(instruction: i64) -> Result<Opcode, IntcodeError> {
         1 => Opcode::Add(
             parse_parameter_mode(instruction / 100 % 10)?,
             parse_parameter_mode(instruction / 1000 % 10)?,
+            parse_parameter_mode(instruction / 10000 % 10)?,
         ),
         2 => Opcode::Multiply(
             parse_parameter_mode(instruction / 100 % 10)?,
             parse_parameter_mode(instruction / 1000 % 10)?,
+            parse_parameter_mode(instruction / 10000 % 10)?,
         ),
-        3 => Opcode::Input,
+        3 => Opcode::Input(parse_parameter_mode(instruction / 100 % 10)?),
         4 => Opcode::Output(parse_parameter_mode(instruction / 100 % 10)?),
         5 => Opcode::JumpIfTrue(
             parse_parameter_mode(instruction / 100 % 10)?,
@@ -126,30 +128,32 @@ fn parse_instruction(instruction: i64) -> Result<Opcode, IntcodeError> {
         7 => Opcode::LessThan(
             parse_parameter_mode(instruction / 100 % 10)?,
             parse_parameter_mode(instruction / 1000 % 10)?,
+            parse_parameter_mode(instruction / 10000 % 10)?,
         ),
         8 => Opcode::Equals(
             parse_parameter_mode(instruction / 100 % 10)?,
             parse_parameter_mode(instruction / 1000 % 10)?,
+            parse_parameter_mode(instruction / 10000 % 10)?,
         ),
         9 => Opcode::AdjustsRelativeBase(parse_parameter_mode(instruction / 100 % 10)?),
         99 => Opcode::Exit,
-        _ => return Err(IntcodeError::InvalidOpCode),
+        invalid => return Err(IntcodeError::InvalidOpCode(invalid)),
     };
     let parameter_mode_count = match ret {
-        Opcode::Add(_, _) => 2,
-        Opcode::Multiply(_, _) => 2,
-        Opcode::Input => 0,
+        Opcode::Add(_, _, _) => 3,
+        Opcode::Multiply(_, _, _) => 3,
+        Opcode::Input(_) => 1,
         Opcode::Output(_) => 1,
         Opcode::JumpIfTrue(_, _) => 2,
         Opcode::JumpIfFalse(_, _) => 2,
-        Opcode::LessThan(_, _) => 2,
-        Opcode::Equals(_, _) => 2,
+        Opcode::LessThan(_, _, _) => 3,
+        Opcode::Equals(_, _, _) => 3,
         Opcode::AdjustsRelativeBase(_) => 1,
         Opcode::Exit => 0,
     };
     let max_value = (10i64).pow(2 + parameter_mode_count) - 1;
     if instruction > max_value {
-        Err(IntcodeError::InvalidOpCode)
+        Err(IntcodeError::InvalidOpCode(instruction))
     } else {
         Ok(ret)
     }
@@ -273,35 +277,50 @@ where
         }
     }
 
-    fn load(&self, pc_rel: i64, mode: ParameterMode) -> Result<i64, IntcodeError> {
+    fn load_effective_address(
+        &self,
+        pc_rel: i64,
+        mode: ParameterMode,
+    ) -> Result<i64, IntcodeError> {
         let ret = match mode {
-            ParameterMode::Position => self.load_raw(self.load_raw(self.pc + pc_rel)?),
-            ParameterMode::Immediate => self.load_raw(self.pc + pc_rel),
-            ParameterMode::Relative => {
-                self.load_raw(self.relative_base + self.load_raw(self.pc + pc_rel)?)
-            }
+            ParameterMode::Position => self.load_raw(self.pc + pc_rel)?,
+            ParameterMode::Immediate => self.pc + pc_rel,
+            ParameterMode::Relative => self.relative_base + self.load_raw(self.pc + pc_rel)?,
         };
-        ret
+        Ok(ret)
+    }
+
+    fn load(&self, pc_rel: i64, mode: ParameterMode) -> Result<i64, IntcodeError> {
+        self.load_raw(self.load_effective_address(pc_rel, mode)?)
+    }
+
+    fn store(&mut self, pc_rel: i64, mode: ParameterMode, value: i64) -> Result<(), IntcodeError> {
+        self.store_raw(self.load_effective_address(pc_rel, mode)?, value)
     }
 
     fn execute(&mut self) -> Result<(), IntcodeError> {
         loop {
             match parse_instruction(self.load_raw(self.pc)?)? {
-                Opcode::Add(src1_mode, src2_mode) => {
-                    let dst = self.load(3, ParameterMode::Immediate)?;
-                    self.store_raw(dst, self.load(1, src1_mode)? + self.load(2, src2_mode)?)?;
+                Opcode::Add(src1_mode, src2_mode, dst_mode) => {
+                    self.store(
+                        3,
+                        dst_mode,
+                        self.load(1, src1_mode)? + self.load(2, src2_mode)?,
+                    )?;
                     self.pc += 4;
                 }
-                Opcode::Multiply(src1_mode, src2_mode) => {
-                    let dst = self.load(3, ParameterMode::Immediate)?;
-                    self.store_raw(dst, self.load(1, src1_mode)? * self.load(2, src2_mode)?)?;
+                Opcode::Multiply(src1_mode, src2_mode, dst_mode) => {
+                    self.store(
+                        3,
+                        dst_mode,
+                        self.load(1, src1_mode)? * self.load(2, src2_mode)?,
+                    )?;
                     self.pc += 4;
                 }
-                Opcode::Input => {
+                Opcode::Input(dst_mode) => {
                     self.output.prompt_for_number()?;
-                    let dst = self.load(1, ParameterMode::Immediate)?;
                     let value = self.input.read_number()?;
-                    self.store_raw(dst, value)?;
+                    self.store(1, dst_mode, value)?;
                     self.pc += 2;
                 }
                 Opcode::Output(src_mode) => {
@@ -328,10 +347,10 @@ where
                         self.pc + 3
                     };
                 }
-                Opcode::LessThan(src1_mode, src2_mode) => {
-                    let dst = self.load(3, ParameterMode::Immediate)?;
-                    self.store_raw(
-                        dst,
+                Opcode::LessThan(src1_mode, src2_mode, dst_mode) => {
+                    self.store(
+                        3,
+                        dst_mode,
                         if self.load(1, src1_mode)? < self.load(2, src2_mode)? {
                             1
                         } else {
@@ -340,10 +359,10 @@ where
                     )?;
                     self.pc += 4;
                 }
-                Opcode::Equals(src1_mode, src2_mode) => {
-                    let dst = self.load(3, ParameterMode::Immediate)?;
-                    self.store_raw(
-                        dst,
+                Opcode::Equals(src1_mode, src2_mode, dst_mode) => {
+                    self.store(
+                        3,
+                        dst_mode,
                         if self.load(1, src1_mode)? == self.load(2, src2_mode)? {
                             1
                         } else {
