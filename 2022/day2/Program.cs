@@ -22,38 +22,35 @@ foreach (var line in day2.Properties.Resources.Input.Split(new char[] { '\r', '\
 
     partOneScore += CalculateScore(opponentMove, myMove);
 
-    switch (myChar)
+    myMove = myChar switch
     {
-        case 'X':
-            // must loose
-            if (opponentMove == 0)
-                myMove = 2;
-            else
-                myMove = opponentMove - 1;
-            break;
-        case 'Y':
-            // must draw
-            myMove = opponentMove;
-            break;
-        case 'Z':
-            // must win
-            if (opponentMove == 2)
-                myMove = 0;
-            else
-                myMove = opponentMove + 1;
-            break;
-        default:
-            Debug.Fail(null);
-            break;
-    }
+        // must loose
+        'X' => ClampRange(opponentMove - 1),
+        // must draw
+        'Y' => opponentMove,
+        // must win
+        'Z' => ClampRange(opponentMove + 1),
+        _ => throw new Exception(),
+    };
 
     partTwoScore += CalculateScore(opponentMove, myMove);
 }
 
 Debug.Assert(partOneScore == 17189);
+Debug.Assert(partTwoScore == 13490);
 
 Console.WriteLine($"Day 2 part 1 answer: {partOneScore}");
 Console.WriteLine($"Day 2 part 2 answer: {partTwoScore}");
+
+// Keep in the range [0, 2) by adding or subtracting 3
+static int ClampRange(int input)
+{
+    while (input < 0)
+        input += 3;
+    while (input > 2)
+        input -= 3;
+    return input;
+}
 
 static int CalculateScore(int opponentMove, int myMove)
 {
@@ -63,8 +60,7 @@ static int CalculateScore(int opponentMove, int myMove)
     Debug.Assert(moveDiff >= -2 && moveDiff <= 2);
 
     // normalize the distance
-    if (moveDiff < 0)
-        moveDiff += 3;
+    moveDiff = ClampRange(moveDiff);
 
     if (moveDiff == 0)
     {
