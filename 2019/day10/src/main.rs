@@ -1,6 +1,6 @@
 use num_rational::Rational32;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::error::Error;
 use std::ops::Neg;
 use thiserror::Error;
@@ -60,78 +60,76 @@ impl AsteroidMap {
 struct PlacementResult {
     x: usize,
     y: usize,
-    num_detectable: usize,
+    asteroids_in_direction: HashMap<(i32, i32), usize>,
 }
+
+impl PlacementResult {
+    fn num_detectable(&self) -> usize {
+        self.asteroids_in_direction.len()
+    }
+}
+
 #[derive(Error, Debug)]
 enum PlacementError {
     #[error("no asteroids in starfield")]
     NoAsteroids,
 }
 
-fn count_asteroids_in_line_of_sight(map: &AsteroidMap, x_origin: usize, y_origin: usize) -> usize {
-    let mut has_above = false;
-    let mut has_below = false;
-    let mut has_left = false;
-    let mut has_right = false;
-    let mut asteroids = HashSet::new();
+fn get_delta(x_origin: usize, y_origin: usize, x: usize, y: usize) -> Option<(i32, i32)> {
+    match (x_origin.cmp(&x), y_origin.cmp(&y)) {
+        (Ordering::Equal, Ordering::Equal) => None,
+        // special case axis-aligned locations, to avoid having to deal with
+        // divide by zero
+        (Ordering::Equal, Ordering::Greater) => Some((0, 1)),
+        (Ordering::Equal, Ordering::Less) => Some((0, -1)),
+        (Ordering::Less, Ordering::Equal) => Some((-1, 0)),
+        (Ordering::Greater, Ordering::Equal) => Some((1, 0)),
+        // normal cases
+        (_, _) => {
+            // TODO: maybe check for overflow
+            let delta_x = x as i32 - x_origin as i32;
+            let delta_y = y as i32 - y_origin as i32;
+            // use a rational number to reduce the fraction
+            let rat = Rational32::new(delta_x, delta_y);
+            let delta_x = if delta_x < 0 {
+                rat.numer().abs().neg()
+            } else {
+                rat.numer().abs()
+            };
+            let delta_y = if delta_y < 0 {
+                rat.denom().abs().neg()
+            } else {
+                rat.denom().abs()
+            };
+            Some((delta_x, delta_y))
+        }
+    }
+}
+
+fn count_asteroids_in_line_of_sight(
+    map: &AsteroidMap,
+    x_origin: usize,
+    y_origin: usize,
+) -> PlacementResult {
+    let mut asteroids: HashMap<(i32, i32), usize> = HashMap::new();
     for (y, line) in map.starfield.iter().enumerate() {
         for (x, &has_asteroid) in line.iter().enumerate() {
             if has_asteroid {
-                match (y_origin.cmp(&y), x_origin.cmp(&x)) {
-                    (Ordering::Equal, Ordering::Equal) => {
-                        // self
-                    }
-                    // special case axis-aligned locations, to avoid having to deal with
-                    // divide by zero and comparing negitive zero with positive zero
-                    (Ordering::Equal, Ordering::Greater) => {
-                        has_right = true;
-                    }
-                    (Ordering::Equal, Ordering::Less) => {
-                        has_left = true;
-                    }
-                    (Ordering::Less, Ordering::Equal) => {
-                        has_above = true;
-                    }
-                    (Ordering::Greater, Ordering::Equal) => {
-                        has_below = true;
-                    }
-                    // normal cases
-                    (_, _) => {
-                        // TODO: maybe check for overflow
-                        let delta_x = x as i32 - x_origin as i32;
-                        let delta_y = y as i32 - y_origin as i32;
-                        // use a rational number to reduce the fraction
-                        let rat = Rational32::new(delta_x, delta_y);
-                        let delta_x = if delta_x < 0 {
-                            rat.numer().abs().neg()
-                        } else {
-                            rat.numer().abs()
-                        };
-                        let delta_y = if delta_y < 0 {
-                            rat.denom().abs().neg()
-                        } else {
-                            rat.denom().abs()
-                        };
-                        asteroids.insert((delta_x, delta_y));
+                if let Some((delta_x, delta_y)) = get_delta(x_origin, y_origin, x, y) {
+                    if let Some(count) = asteroids.get(&(delta_x, delta_y)) {
+                        asteroids.insert((delta_x, delta_y), count + 1);
+                    } else {
+                        asteroids.insert((delta_x, delta_y), 1);
                     }
                 }
             }
         }
     }
-    let mut ret = asteroids.len();
-    if has_above {
-        ret += 1;
+    PlacementResult {
+        x: x_origin,
+        y: y_origin,
+        asteroids_in_direction: asteroids,
     }
-    if has_below {
-        ret += 1;
-    }
-    if has_left {
-        ret += 1;
-    }
-    if has_right {
-        ret += 1;
-    }
-    ret
 }
 
 fn get_num_detectable(map: &AsteroidMap) -> Result<PlacementResult, PlacementError> {
@@ -139,13 +137,11 @@ fn get_num_detectable(map: &AsteroidMap) -> Result<PlacementResult, PlacementErr
     for (y, line) in map.starfield.iter().enumerate() {
         for (x, &has_asteroid) in line.iter().enumerate() {
             if has_asteroid {
-                let num_detectable = count_asteroids_in_line_of_sight(map, x, y);
-                if ret.is_none() || ret.as_ref().unwrap().num_detectable < num_detectable {
-                    ret = Some(PlacementResult {
-                        x,
-                        y,
-                        num_detectable,
-                    });
+                let candidate = count_asteroids_in_line_of_sight(map, x, y);
+                if ret.is_none()
+                    || ret.as_ref().unwrap().num_detectable() < candidate.num_detectable()
+                {
+                    ret = Some(candidate);
                 }
             }
         }
@@ -163,7 +159,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let detected = get_num_detectable(&map)?;
     println!(
         "detected at ({},{}): {}",
-        detected.x, detected.y, detected.num_detectable
+        detected.x, detected.y, detected.num_detectable()
     );
     Ok(())
 }
@@ -204,7 +200,7 @@ mod test {
 
         let result = get_num_detectable(&map).unwrap();
         assert_eq!((result.x, result.y), (3, 4));
-        assert_eq!(result.num_detectable, 8);
+        assert_eq!(result.num_detectable(), 8);
     }
 
     #[test]
@@ -227,7 +223,7 @@ mod test {
 
         let result = get_num_detectable(&map).unwrap();
         assert_eq!((result.x, result.y), (5, 8));
-        assert_eq!(result.num_detectable, 33);
+        assert_eq!(result.num_detectable(), 33);
     }
 
     #[test]
@@ -250,7 +246,7 @@ mod test {
 
         let result = get_num_detectable(&map).unwrap();
         assert_eq!((result.x, result.y), (1, 2));
-        assert_eq!(result.num_detectable, 35);
+        assert_eq!(result.num_detectable(), 35);
     }
 
     #[test]
@@ -273,7 +269,7 @@ mod test {
 
         let result = get_num_detectable(&map).unwrap();
         assert_eq!((result.x, result.y), (6, 3));
-        assert_eq!(result.num_detectable, 41);
+        assert_eq!(result.num_detectable(), 41);
     }
 
     #[test]
@@ -306,6 +302,6 @@ mod test {
 
         let result = get_num_detectable(&map).unwrap();
         assert_eq!((result.x, result.y), (11, 13));
-        assert_eq!(result.num_detectable, 210);
+        assert_eq!(result.num_detectable(), 210);
     }
 }
