@@ -227,24 +227,52 @@ impl WriteNumber for ChannelWriteNumber {
     }
 }
 
-struct CpuState<'a, R, W>
+pub trait CpuIo {
+    fn read_number(&mut self) -> Result<i64, IntcodeError>;
+    fn write_number(&mut self, num: i64) -> Result<(), IntcodeError>;
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
+}
+
+struct ComposedCpuIo<'a, R, W>
 where
     R: ReadNumber,
     W: WriteNumber,
+{
+    reader: &'a mut R,
+    writer: &'a mut W,
+}
+
+impl<'a, R, W> CpuIo for ComposedCpuIo<'a, R, W>
+where
+    R: ReadNumber,
+    W: WriteNumber,
+{
+    fn read_number(&mut self) -> Result<i64, IntcodeError> {
+        self.reader.read_number()
+    }
+    fn write_number(&mut self, num: i64) -> Result<(), IntcodeError> {
+        self.writer.write_number(num)
+    }
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
+        self.writer.prompt_for_number()
+    }
+}
+
+struct CpuState<'a, IO>
+where
+    IO: CpuIo,
 {
     pc: i64,
     relative_base: i64,
     mem: HashMap<i64, i64>,
-    input: &'a mut R,
-    output: &'a mut W,
+    io: &'a mut IO,
 }
 
-impl<R, W> CpuState<'_, R, W>
+impl<IO> CpuState<'_, IO>
 where
-    R: ReadNumber,
-    W: WriteNumber,
+    IO: CpuIo,
 {
-    fn create<'a>(mem: &[i64], input: &'a mut R, output: &'a mut W) -> CpuState<'a, R, W> {
+    fn create<'a>(mem: &[i64], io: &'a mut IO) -> CpuState<'a, IO> {
         let mut mem_map: HashMap<i64, i64> = HashMap::with_capacity(mem.len()); //TODO: consider using a faster hasher
         for (i, num) in mem.iter().enumerate() {
             mem_map.insert(i.try_into().unwrap(), *num);
@@ -253,8 +281,7 @@ where
             pc: 0,
             relative_base: 0,
             mem: mem_map,
-            input,
-            output,
+            io,
         }
     }
 
@@ -318,13 +345,13 @@ where
                     self.pc += 4;
                 }
                 Opcode::Input(dst_mode) => {
-                    self.output.prompt_for_number()?;
-                    let value = self.input.read_number()?;
+                    self.io.prompt_for_number()?;
+                    let value = self.io.read_number()?;
                     self.store(1, dst_mode, value)?;
                     self.pc += 2;
                 }
                 Opcode::Output(src_mode) => {
-                    self.output.write_number(self.load(1, src_mode)?)?;
+                    self.io.write_number(self.load(1, src_mode)?)?;
                     self.pc += 2;
                 }
                 Opcode::JumpIfTrue(comparand_mode, target_mode) => {
@@ -381,12 +408,11 @@ where
     }
 }
 
-fn execute_inner<R, W>(mem: &mut [i64], input: &mut R, output: &mut W) -> Result<(), IntcodeError>
+pub fn execute_with_io<IO>(mem: &mut [i64], io: &mut IO) -> Result<(), IntcodeError>
 where
-    R: ReadNumber,
-    W: WriteNumber,
+    IO: CpuIo,
 {
-    let mut cpu = CpuState::create(mem, input, output);
+    let mut cpu = CpuState::create(mem, io);
     if let Err(err) = cpu.execute() {
         Err(err)
     } else {
@@ -396,6 +422,22 @@ where
         }
         Ok(())
     }
+}
+
+fn execute_composed<R, W>(
+    mem: &mut [i64],
+    input: &mut R,
+    output: &mut W,
+) -> Result<(), IntcodeError>
+where
+    R: ReadNumber,
+    W: WriteNumber,
+{
+    let mut io = ComposedCpuIo {
+        reader: input,
+        writer: output,
+    };
+    execute_with_io(mem, &mut io)
 }
 
 pub fn execute(
@@ -408,7 +450,7 @@ pub fn execute(
         output,
         prompt: true,
     };
-    execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
+    execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 pub fn execute_no_prompt(
@@ -421,7 +463,7 @@ pub fn execute_no_prompt(
         output,
         prompt: false,
     };
-    execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
+    execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 pub fn execute_no_io(mem: &mut [i64]) -> Result<(), IntcodeError> {
@@ -435,7 +477,7 @@ pub fn execute_with_channel(
 ) -> Result<(), IntcodeError> {
     let mut input_trait_object = ChannelReadNumber { input: &input };
     let mut output_trait_object = ChannelWriteNumber { output };
-    execute_inner(mem, &mut input_trait_object, &mut output_trait_object)
+    execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
 #[cfg(test)]
