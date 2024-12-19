@@ -134,6 +134,61 @@ fn init_computer() -> Result<(Vec<i64>, State), IntcodeError> {
 fn main() -> Result<(), Box<dyn Error>> {
     let (mut mem, mut state) = init_computer()?;
     intcode::execute_with_io(&mut mem, &mut state)?;
-    println!("number of panels painted: {}", state.is_painted_white.len());
+    println!(
+        "number of panels painted (part1): {}",
+        state.is_painted_white.len()
+    );
+
+    let (mut mem, mut state) = init_computer()?;
+    state.is_painted_white.insert(state.position, true);
+    intcode::execute_with_io(&mut mem, &mut state)?;
+
+    let min_x = state
+        .is_painted_white
+        .keys()
+        .map(|pos| pos.x)
+        .min()
+        .unwrap();
+    let max_x = state
+        .is_painted_white
+        .keys()
+        .map(|pos| pos.x)
+        .max()
+        .unwrap();
+    let min_y = state
+        .is_painted_white
+        .keys()
+        .map(|pos| pos.y)
+        .min()
+        .unwrap();
+    let max_y = state
+        .is_painted_white
+        .keys()
+        .map(|pos| pos.y)
+        .max()
+        .unwrap();
+
+    println!(
+        "part2: painted from ({}, {}) to ({}, {})",
+        min_x, min_y, max_x, max_y
+    );
+
+    for y in min_y..=max_y {
+        for x in min_x..=max_x {
+            print!(
+                "{}",
+                match state
+                    .is_painted_white
+                    .get(&Position { x, y })
+                    .unwrap_or(&false)
+                {
+                    false => ' ',
+                    true => '#',
+                }
+            )
+        }
+        println!();
+    }
+
     Ok(())
 }
