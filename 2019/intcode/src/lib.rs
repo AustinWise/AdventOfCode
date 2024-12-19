@@ -242,7 +242,7 @@ where
     writer: &'a mut W,
 }
 
-impl<'a, R, W> CpuIo for ComposedCpuIo<'a, R, W>
+impl<R, W> CpuIo for ComposedCpuIo<'_, R, W>
 where
     R: ReadNumber,
     W: WriteNumber,
@@ -475,7 +475,7 @@ pub fn execute_with_channel(
     input: &Receiver<i64>,
     output: SyncSender<i64>,
 ) -> Result<(), IntcodeError> {
-    let mut input_trait_object = ChannelReadNumber { input: &input };
+    let mut input_trait_object = ChannelReadNumber { input };
     let mut output_trait_object = ChannelWriteNumber { output };
     execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }

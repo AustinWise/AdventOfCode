@@ -125,9 +125,14 @@ impl CpuIo for State {
     }
 }
 
+fn init_computer() -> Result<(Vec<i64>, State), IntcodeError> {
+    let mem = intcode::parse_program(&std::fs::read_to_string("input.txt")?)?;
+    let state = State::new();
+    Ok((mem, state))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut mem = intcode::parse_program(&std::fs::read_to_string("input.txt")?)?;
-    let mut state = State::new();
+    let (mut mem, mut state) = init_computer()?;
     intcode::execute_with_io(&mut mem, &mut state)?;
     println!("number of panels painted: {}", state.is_painted_white.len());
     Ok(())
