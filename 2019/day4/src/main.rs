@@ -2,7 +2,7 @@
 enum PasswordValidity {
     Valid,
     WrongLength,
-    NotMonotonicallyIncrasing,
+    NotMonotonicallyIncreasing,
     NoRepeatedDigits,
 }
 
@@ -21,7 +21,7 @@ fn is_valid_password(password: u32) -> PasswordValidity {
         //we check that the numbers are decreasing.
         if let Some(p) = prev {
             if p < digit {
-                return PasswordValidity::NotMonotonicallyIncrasing;
+                return PasswordValidity::NotMonotonicallyIncreasing;
             } else if p == digit {
                 repeated_digits = true;
             }
@@ -64,7 +64,7 @@ fn is_valid_password2(password: u32) -> PasswordValidity {
                 DigitState::None => 99, // larger than any possible digit
             };
             if p < digit {
-                return PasswordValidity::NotMonotonicallyIncrasing;
+                return PasswordValidity::NotMonotonicallyIncreasing;
             }
         }
 
@@ -135,7 +135,7 @@ mod test {
     fn test_password_valitity() {
         assert_eq!(PasswordValidity::Valid, is_valid_password(111111));
         assert_eq!(
-            PasswordValidity::NotMonotonicallyIncrasing,
+            PasswordValidity::NotMonotonicallyIncreasing,
             is_valid_password(223450)
         );
         assert_eq!(

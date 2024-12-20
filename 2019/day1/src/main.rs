@@ -21,14 +21,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut naive_total = 0;
     let mut total = 0;
     for line in std::fs::read_to_string("input.txt")?.lines() {
-        let mass = u32::from_str_radix(line, 10)?;
+        let mass = line.parse::<u32>()?;
         naive_total += calculate_fuel_required(mass);
         total += calculate_fuel_required_including_fuel(mass);
     }
 
     println!("Total fuel needed: {}", naive_total);
     println!("Total fuel needed (including fuel): {}", total);
-    return Ok(());
+    Ok(())
 }
 
 #[cfg(test)]

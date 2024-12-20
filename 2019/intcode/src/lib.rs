@@ -66,7 +66,7 @@ impl fmt::Display for IntcodeError {
 pub fn parse_program(input: &str) -> Result<Vec<i64>, IntcodeError> {
     let mut v: Vec<i64> = Vec::new();
     for num_str in input.trim().split(',') {
-        if let Ok(num) = i64::from_str_radix(num_str, 10) {
+        if let Ok(num) = num_str.parse::<i64>() {
             v.push(num);
         } else {
             return Err(IntcodeError::ProgramParseError);
@@ -176,7 +176,7 @@ impl ReadNumber for BufReadNumber<'_> {
         let mut buf = String::new();
         match self.buf_read.read_line(&mut buf)? {
             0 => Err(IntcodeError::EOF),
-            _ => Ok(i64::from_str_radix(&buf.trim(), 10)?),
+            _ => Ok((&buf.trim()).parse::<i64>()?),
         }
     }
 }
@@ -366,10 +366,7 @@ where
                 }
                 Opcode::JumpIfFalse(comparand_mode, target_mode) => {
                     self.pc = if self.load(1, comparand_mode)? == 0 {
-                        match i64::try_from(self.load(2, target_mode)?) {
-                            Ok(loc) => loc,
-                            Err(_) => return Err(IntcodeError::IndexOutOfRange),
-                        }
+                        self.load(2, target_mode)?
                     } else {
                         self.pc + 3
                     };

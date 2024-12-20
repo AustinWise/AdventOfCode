@@ -75,7 +75,7 @@ impl OrbitMap {
 
     fn validate(&self) -> Result<(), MyError> {
         for obj in &self.objects {
-            if obj.parent == None {
+            if obj.parent.is_none() {
                 return Err(MyError::MissingLink);
             }
         }
@@ -98,7 +98,7 @@ impl OrbitMap {
         let mut ret = 0;
         for obj in self.objects.iter().skip(1) {
             //TODO: memoize
-            ret += count_one(self, &obj);
+            ret += count_one(self, obj);
         }
         Ok(ret)
     }

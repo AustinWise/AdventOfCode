@@ -43,7 +43,7 @@ fn get_move_for_spec(movement: &str) -> Result<Movement, MyError> {
         return Err(MyError::LineParseError);
     };
     let amount = if let Some((split_index, _)) = char_iter.next() {
-        if let Ok(amount) = u32::from_str_radix(movement.split_at(split_index).1, 10) {
+        if let Ok(amount) = movement.split_at(split_index).1.parse::<u32>() {
             amount
         } else {
             return Err(MyError::LineParseError);

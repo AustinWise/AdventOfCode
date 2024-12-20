@@ -9,7 +9,7 @@ extern crate intcode;
 //TODO: make this a generator?
 fn permutation(begin: i64, number_of_perms: u64) -> Vec<Vec<i64>> {
     fn inner(result: &mut Vec<Vec<i64>>, prefix: &Vec<i64>, to_perm: &Vec<i64>) {
-        if to_perm.len() == 0 {
+        if to_perm.is_empty() {
             result.push(prefix.to_owned());
         } else {
             for i in 0..to_perm.len() {
@@ -56,7 +56,7 @@ fn run_amplifier_controller_program(
 }
 
 fn find_max_thruster(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
-    let mut max_thrust = i64::min_value();
+    let mut max_thrust = i64::MIN;
 
     for phase_setting in permutation(0, 5) {
         max_thrust = max_thrust.max(run_amplifier_controller_program(program, &phase_setting)?);
@@ -95,7 +95,7 @@ fn pump_feedback(
 
 fn run_amplifier_controller_program_feedback(
     program: &Vec<i64>,
-    phase_setting: &Vec<i64>,
+    phase_setting: &[i64],
 ) -> Result<i64, intcode::IntcodeError> {
     let (feedback_front_send, feedback_front_recv) = sync_channel::<i64>(10);
     let (send1, recv1) = sync_channel::<i64>(10);
@@ -131,11 +131,12 @@ fn run_amplifier_controller_program_feedback(
     jh3.join().unwrap()?;
     jh4.join().unwrap()?;
     jh5.join().unwrap()?;
-    Ok(pumper.join().unwrap()?)
+
+    pumper.join().unwrap()
 }
 
 fn find_max_thruster_feedback(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
-    let mut max_thrust = i64::min_value();
+    let mut max_thrust = i64::MIN;
 
     for phase_setting in permutation(5, 5) {
         let this_thrust = run_amplifier_controller_program_feedback(program, &phase_setting)?;
