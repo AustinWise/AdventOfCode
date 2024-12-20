@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::error::Error;
 use std::fmt;
@@ -176,7 +175,7 @@ impl ReadNumber for BufReadNumber<'_> {
         let mut buf = String::new();
         match self.buf_read.read_line(&mut buf)? {
             0 => Err(IntcodeError::EOF),
-            _ => Ok((&buf.trim()).parse::<i64>()?),
+            _ => Ok((buf.trim()).parse::<i64>()?),
         }
     }
 }
@@ -356,10 +355,7 @@ where
                 }
                 Opcode::JumpIfTrue(comparand_mode, target_mode) => {
                     self.pc = if self.load(1, comparand_mode)? != 0 {
-                        match i64::try_from(self.load(2, target_mode)?) {
-                            Ok(loc) => loc,
-                            Err(_) => return Err(IntcodeError::IndexOutOfRange),
-                        }
+                        self.load(2, target_mode)?
                     } else {
                         self.pc + 3
                     };
