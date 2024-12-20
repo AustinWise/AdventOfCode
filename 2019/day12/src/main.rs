@@ -1,5 +1,23 @@
 use std::{cmp::Ordering, ops};
 
+// Greatest common divisor, see
+// https://en.wikipedia.org/wiki/Euclidean_algorithm
+fn gcd(a: u64, b: u64) -> u64 {
+    let mut a = a;
+    let mut b = b;
+    while b != 0 {
+        let t = b;
+        b = a % b;
+        a = t;
+    }
+    a
+}
+
+// Least common multiple
+fn lcm(a: u64, b: u64) -> u64 {
+    a * (b / gcd(a, b))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct MoonVec {
     x: i64,
@@ -25,7 +43,7 @@ impl ops::Add<MoonVec> for MoonVec {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct MoonState {
     pos: MoonVec,
     vel: MoonVec,
@@ -58,6 +76,7 @@ impl MoonState {
     }
 }
 
+#[derive(Clone)]
 struct JupiterState {
     moons: Vec<MoonState>,
 }
@@ -115,23 +134,69 @@ impl JupiterState {
     fn total_energy(&self) -> i64 {
         self.moons.iter().map(|moon| moon.energy()).sum()
     }
+
+    fn collect_axis_values<F>(&self, dimension_fn: F) -> Vec<i64>
+    where
+        F: Fn(MoonVec) -> i64,
+    {
+        self.moons
+            .iter()
+            .flat_map(|moon| vec![dimension_fn(moon.pos), dimension_fn(moon.vel)])
+            .collect()
+    }
+
+    fn find_repeat_count(&self) -> u64 {
+        let inital_x = self.collect_axis_values(|v| v.x);
+        let inital_y = self.collect_axis_values(|v| v.y);
+        let inital_z = self.collect_axis_values(|v| v.z);
+
+        let mut state = self.clone();
+        let mut count: u64 = 0;
+        let mut x_count: Option<u64> = None;
+        let mut y_count: Option<u64> = None;
+        let mut z_count: Option<u64> = None;
+        loop {
+            state = state.step();
+            count += 1;
+
+            if x_count.is_none() && state.collect_axis_values(|v| v.x).eq(&inital_x) {
+                x_count = Some(count);
+            }
+            if y_count.is_none() && state.collect_axis_values(|v| v.y).eq(&inital_y) {
+                y_count = Some(count);
+            }
+            if z_count.is_none() && state.collect_axis_values(|v| v.z).eq(&inital_z) {
+                z_count = Some(count);
+            }
+
+            if let (Some(x), Some(y), Some(z)) = (x_count, y_count, z_count) {
+                return lcm(x, lcm(y, z));
+            }
+        }
+    }
 }
 
-fn main() {
-    let mut state = JupiterState {
+fn get_puzzle_input() -> JupiterState {
+    JupiterState {
         moons: vec![
             MoonState::new(-16, 15, -9),
             MoonState::new(-14, 5, 4),
             MoonState::new(2, 0, 6),
             MoonState::new(-3, 18, 9),
         ],
-    };
+    }
+}
+
+fn main() {
+    let mut state = get_puzzle_input();
 
     for _ in 0..1000 {
         state = state.step();
     }
 
     println!("part 1: {}", state.total_energy());
+
+    println!("part 2: {}", get_puzzle_input().find_repeat_count());
 }
 
 #[cfg(test)]
@@ -185,5 +250,11 @@ mod tests {
             state = state.step();
         }
         assert_eq!(179, state.total_energy());
+    }
+
+    #[test]
+    fn test_repeat_count() {
+        let state = get_sample_data();
+        assert_eq!(2772, state.find_repeat_count());
     }
 }
