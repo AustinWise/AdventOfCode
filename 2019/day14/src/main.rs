@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use topological_sort::TopologicalSort;
 
@@ -42,7 +43,7 @@ fn parse_recipes(input: &str) -> HashMap<String, Reaction> {
     ret
 }
 
-fn find_min_ore(reactions: &HashMap<String, Reaction>) -> u64 {
+fn find_min_ore(reactions: &HashMap<String, Reaction>, num_fuel: u64) -> u64 {
     let mut ts = TopologicalSort::<&str>::new();
     for reaction in reactions.values() {
         for (_, reagent) in &reaction.ingredients {
@@ -51,7 +52,7 @@ fn find_min_ore(reactions: &HashMap<String, Reaction>) -> u64 {
     }
 
     let mut quantities: HashMap<String, u64> = HashMap::new();
-    quantities.insert("FUEL".to_owned(), 1);
+    quantities.insert("FUEL".to_owned(), num_fuel);
 
     while let Some(chem) = ts.pop() {
         if chem == "ORE" {
@@ -59,10 +60,12 @@ fn find_min_ore(reactions: &HashMap<String, Reaction>) -> u64 {
         }
         if let Some(chem_quant) = quantities.remove(chem) {
             let reaction = reactions.get(chem).unwrap();
-            let mut reaction_amount = reaction.num_result;
-            while reaction_amount < chem_quant {
-                reaction_amount += reaction.num_result;
-            }
+
+            let reaction_amount = match chem_quant.cmp(&reaction.num_result) {
+                Ordering::Less | Ordering::Equal => reaction.num_result,
+                Ordering::Greater => chem_quant.div_ceil(reaction.num_result) * reaction.num_result,
+            };
+
             for (num, reagent) in &reaction.ingredients {
                 let num = reaction_amount / reaction.num_result * num;
                 let num = num + quantities.get(reagent).unwrap_or(&0);
@@ -76,10 +79,42 @@ fn find_min_ore(reactions: &HashMap<String, Reaction>) -> u64 {
     *quantities.get("ORE").unwrap()
 }
 
+fn turn_a_trillion_ore_into_how_much_fuel(reactions: &HashMap<String, Reaction>) -> u64 {
+    static ONE_TRILLION: u64 = 1_000_000_000_000;
+    // If the reactions had no left overs, this would be the answer.
+    let mut lower_bound = ONE_TRILLION / find_min_ore(reactions, 1);
+
+    // The upper bound is unknown, we exponentially probe.
+    let mut upper_bound = lower_bound + 1;
+    while find_min_ore(reactions, upper_bound) < ONE_TRILLION {
+        upper_bound *= 2;
+    }
+
+    // binary search to find the precise point we use 1 trillion ORE.
+    let mut iter_count = 0;
+    while lower_bound <= upper_bound {
+        let mid = (lower_bound + upper_bound) / 2;
+        let ore = find_min_ore(reactions, mid);
+        match ore.cmp(&ONE_TRILLION) {
+            Ordering::Less => lower_bound = mid + 1,
+            Ordering::Equal => return mid,
+            Ordering::Greater => upper_bound = mid - 1,
+        }
+        iter_count += 1;
+        if iter_count > 100 {
+            panic!("wut");
+        }
+    }
+
+    upper_bound
+}
+
 fn main() {
     let recipe = parse_recipes(include_str!("input.txt"));
-    let min = find_min_ore(&recipe);
+    let min = find_min_ore(&recipe, 1);
     println!("Min ore: {:?}", min);
+    let min = turn_a_trillion_ore_into_how_much_fuel(&recipe);
+    println!("A trillion: {:?}", min);
 }
 
 #[cfg(test)]
@@ -96,7 +131,7 @@ mod test {
 7 A, 1 D => 1 E
 7 A, 1 E => 1 FUEL"#,
         );
-        let min = find_min_ore(&recipe);
+        let min = find_min_ore(&recipe, 1);
         assert_eq!(31, min);
     }
 
@@ -111,7 +146,7 @@ mod test {
 4 C, 1 A => 1 CA
 2 AB, 3 BC, 4 CA => 1 FUEL"#,
         );
-        let min = find_min_ore(&recipe);
+        let min = find_min_ore(&recipe, 1);
         assert_eq!(165, min);
     }
 
@@ -128,8 +163,10 @@ mod test {
 165 ORE => 2 GPVTF
 3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT"#,
         );
-        let min = find_min_ore(&recipe);
+        let min = find_min_ore(&recipe, 1);
         assert_eq!(13312, min);
+        let trillion = turn_a_trillion_ore_into_how_much_fuel(&recipe);
+        assert_eq!(82892753, trillion);
     }
 
     #[test]
@@ -148,8 +185,10 @@ mod test {
 1 VJHF, 6 MNCFX => 4 RFSQX
 176 ORE => 6 VJHF"#,
         );
-        let min = find_min_ore(&recipe);
+        let min = find_min_ore(&recipe, 1);
         assert_eq!(180697, min);
+        let trillion = turn_a_trillion_ore_into_how_much_fuel(&recipe);
+        assert_eq!(5586022, trillion);
     }
 
     #[test]
@@ -173,7 +212,9 @@ mod test {
 7 XCVML => 6 RJRHP
 5 BHXH, 4 VRPVC => 5 LTCX"#,
         );
-        let min = find_min_ore(&recipe);
+        let min = find_min_ore(&recipe, 1);
         assert_eq!(2210736, min);
+        let trillion = turn_a_trillion_ore_into_how_much_fuel(&recipe);
+        assert_eq!(460664, trillion);
     }
 }
