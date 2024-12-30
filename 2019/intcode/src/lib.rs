@@ -18,6 +18,7 @@ pub enum IntcodeError {
     IoError(std::io::Error),
     RecvError(RecvError),
     SendError(SendError<i64>),
+    UserInitiatedExit,
 }
 
 impl Error for IntcodeError {}
@@ -58,6 +59,7 @@ impl fmt::Display for IntcodeError {
             IntcodeError::IoError(io_err) => write!(f, "io error: {}", io_err),
             IntcodeError::RecvError(recv_err) => write!(f, "recv error: {}", recv_err),
             IntcodeError::SendError(send_err) => write!(f, "send error: {}", send_err),
+            IntcodeError::UserInitiatedExit => write!(f, "user initiated exit"),
         }
     }
 }
@@ -324,7 +326,7 @@ where
         self.store_raw(self.load_effective_address(pc_rel, mode)?, value)
     }
 
-    fn execute(&mut self) -> Result<(), IntcodeError> {
+    fn execute_inner(&mut self) -> Result<(), IntcodeError> {
         loop {
             match parse_instruction(self.load_raw(self.pc)?)? {
                 Opcode::Add(src1_mode, src2_mode, dst_mode) => {
@@ -397,6 +399,14 @@ where
                 }
                 Opcode::Exit => return Ok(()),
             }
+        }
+    }
+
+    fn execute(&mut self) -> Result<(), IntcodeError> {
+        let rc = self.execute_inner();
+        match rc {
+            Err(IntcodeError::UserInitiatedExit) => Ok(()),
+            _ => rc,
         }
     }
 }
