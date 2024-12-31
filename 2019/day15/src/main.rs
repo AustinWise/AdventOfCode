@@ -278,6 +278,50 @@ impl Map {
         self.try_find_distance_to_oxygen_system(Vec2::new(0, 0), goal, &mut prev, &mut prev_map)
             .unwrap()
     }
+
+    fn find_minutes_required_for_oxygen_to_propagate(&self) -> usize {
+        let mut map = self.cells.clone();
+        let mut next_map = map.clone();
+        let mut count: usize = 0;
+
+        loop {
+            let mut found_oxygen_free_zone = false;
+            for (&k, &v) in map.iter() {
+                if let (
+                    k,
+                    // We reuse "is_oxygen_system" to indicate whether or not a cell has oxygen,
+                    // not just the system.
+                    CellState::Open {
+                        is_oxygen_system: false,
+                    },
+                ) = (k, v)
+                {
+                    found_oxygen_free_zone = true;
+
+                    for dir in MoveDirection::all() {
+                        if let Some(CellState::Open {
+                            is_oxygen_system: true,
+                        }) = map.get(&(k + dir.move_direction()))
+                        {
+                            next_map.insert(
+                                k,
+                                CellState::Open {
+                                    is_oxygen_system: true,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+
+            if !found_oxygen_free_zone {
+                return count;
+            }
+
+            map = next_map.clone();
+            count += 1;
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -289,5 +333,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     map.print_map();
     println!();
     println!("part 1: {}", map.find_distance_to_oxygen_system());
+    println!(
+        "part 2: {}",
+        map.find_minutes_required_for_oxygen_to_propagate()
+    );
     Ok(())
 }
