@@ -50,6 +50,15 @@ enum PendingMove {
 }
 
 impl MoveDirection {
+    fn all() -> [MoveDirection; 4] {
+        [
+            MoveDirection::North,
+            MoveDirection::East,
+            MoveDirection::South,
+            MoveDirection::West,
+        ]
+    }
+
     fn move_command(self) -> i64 {
         match self {
             MoveDirection::North => 1,
@@ -93,31 +102,14 @@ impl CpuIo for Map {
 
     fn read_number(&mut self) -> Result<i64, IntcodeError> {
         assert!(self.pending_moving.is_none());
-        for move_dir in [
-            MoveDirection::North,
-            MoveDirection::East,
-            MoveDirection::South,
-            MoveDirection::West,
-        ] {
+        for move_dir in MoveDirection::all() {
             let new_post = self.pos + move_dir.move_direction();
             if self.get_cell_state(&new_post) == CellState::Unexplored {
-                println!(
-                    "moving FORWARD {:?} from {:?} to {:?}",
-                    move_dir,
-                    self.pos,
-                    self.pos + move_dir.move_direction()
-                );
                 self.pending_moving = Some(PendingMove::MovingForward(move_dir));
                 return Ok(move_dir.move_command());
             }
         }
         if let Some(move_dir) = self.past_moves.pop() {
-            println!(
-                "moving back {:?} from {:?} to {:?}",
-                move_dir.opposite(),
-                self.pos,
-                self.pos + move_dir.opposite().move_direction()
-            );
             self.pending_moving = Some(PendingMove::MovingBack(move_dir.opposite()));
             return Ok(move_dir.opposite().move_command());
         }
@@ -129,7 +121,6 @@ impl CpuIo for Map {
         self.pending_moving = None;
         match (num, pending_move) {
             (0, PendingMove::MovingForward(pending_move)) => {
-                println!("hit wall at {:?}", self.pos + pending_move.move_direction());
                 self.cells
                     .insert(self.pos + pending_move.move_direction(), CellState::Wall);
             }
@@ -138,11 +129,6 @@ impl CpuIo for Map {
             }
             (1 | 2, PendingMove::MovingForward(pending_move)) => {
                 self.pos = self.pos + pending_move.move_direction();
-                println!(
-                    "moved to {:?}, found oxygen system: {:?}",
-                    self.pos,
-                    num == 2
-                );
                 self.past_moves.push(pending_move);
                 self.cells.insert(
                     self.pos,
@@ -152,7 +138,6 @@ impl CpuIo for Map {
                 );
             }
             (1 | 2, PendingMove::MovingBack(pending_move)) => {
-                println!("moved back to {:?}", self.pos);
                 self.pos = self.pos + pending_move.move_direction();
             }
             _ => panic!("unexpected number: {}", num),
@@ -200,17 +185,98 @@ impl Map {
 
         for y in min_y..=max_y {
             for x in min_x..=max_x {
-                let ch = match self.cells.get(&Vec2::new(x, y)) {
-                    Some(CellState::Unexplored) => ' ',
-                    None => ' ',
-                    Some(CellState::Wall) => '#',
-                    Some(CellState::Open { is_oxygen_system: false }) => '.',
-                    Some(CellState::Open { is_oxygen_system: true }) => 'O',
+                let ch = match self
+                    .cells
+                    .get(&Vec2::new(x, y))
+                    .unwrap_or(&CellState::Unexplored)
+                {
+                    CellState::Unexplored => ' ',
+                    CellState::Wall => '#',
+                    CellState::Open {
+                        is_oxygen_system: false,
+                    } => '.',
+                    CellState::Open {
+                        is_oxygen_system: true,
+                    } => 'O',
                 };
                 print!("{}", ch);
             }
             println!();
         }
+    }
+
+    // Rather than using something fancy like A*, just try every possible path.
+    fn try_find_distance_to_oxygen_system(
+        &self,
+        next: Vec2,
+        goal: Vec2,
+        prev: &mut Vec<Vec2>,
+        prev_map: &mut HashMap<Vec2, ()>,
+    ) -> Option<usize> {
+        if prev_map.contains_key(&next) {
+            return None;
+        }
+
+        match self.get_cell_state(&next) {
+            CellState::Open {
+                is_oxygen_system: _,
+            } => {
+                if next == goal {
+                    return Some(prev.len());
+                }
+
+                prev.push(next);
+                prev_map.insert(next, ());
+
+                let mut best: Option<usize> = None;
+                for move_dir in MoveDirection::all() {
+                    best = match (
+                        best,
+                        self.try_find_distance_to_oxygen_system(
+                            next + move_dir.move_direction(),
+                            goal,
+                            prev,
+                            prev_map,
+                        ),
+                    ) {
+                        (None, best) => best,
+                        (best, None) => best,
+                        (Some(x), Some(y)) => {
+                            if x > y {
+                                Some(y)
+                            } else {
+                                Some(x)
+                            }
+                        }
+                    }
+                }
+
+                prev.pop().unwrap();
+                prev_map.remove(&next).unwrap();
+
+                best
+            }
+            _ => None,
+        }
+    }
+
+    fn find_distance_to_oxygen_system(&self) -> usize {
+        let goal = *self
+            .cells
+            .iter()
+            .filter(|(_, v)| {
+                **v == CellState::Open {
+                    is_oxygen_system: true,
+                }
+            })
+            .map(|(k, _)| k)
+            .next()
+            .unwrap();
+
+        let mut prev = vec![];
+        let mut prev_map = HashMap::new();
+        self.try_find_distance_to_oxygen_system(Vec2::new(0, 0), goal, &mut prev, &mut prev_map)
+            .unwrap()
     }
 }
 
@@ -218,7 +284,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut mem = intcode::parse_program(include_str!("input.txt"))?;
     let mut map = Map::new();
     intcode::execute_with_io(&mut mem, &mut map)?;
+    assert!(map.cells.len() > 2);
     println!();
     map.print_map();
+    println!();
+    println!("part 1: {}", map.find_distance_to_oxygen_system());
     Ok(())
 }
