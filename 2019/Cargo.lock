@@ -62,6 +62,7 @@ name = "day17"
 version = "0.1.0"
 dependencies = [
  "intcode",
+ "utils",
 ]
 
 [[package]]
