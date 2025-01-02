@@ -456,6 +456,14 @@ pub fn execute(
     execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
+pub fn execute_with_std_io(mem: &mut [i64]) -> Result<(), IntcodeError> {
+    execute(
+        mem,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stdout().lock(),
+    )
+}
+
 pub fn execute_no_prompt(
     mem: &mut [i64],
     input: &mut dyn BufRead,
