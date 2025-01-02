@@ -1,32 +1,9 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::ops::Add;
 
 use intcode::CpuIo;
 use intcode::IntcodeError;
-
-#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
-struct Vec2 {
-    x: i32,
-    y: i32,
-}
-
-impl Vec2 {
-    fn new(x: i32, y: i32) -> Self {
-        Vec2 { x, y }
-    }
-}
-
-impl Add for Vec2 {
-    type Output = Vec2;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-        }
-    }
-}
+use utils::Vec2;
 
 #[derive(Clone, Copy, PartialEq)]
 enum CellState {
