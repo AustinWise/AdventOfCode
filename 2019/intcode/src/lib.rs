@@ -234,6 +234,11 @@ pub trait CpuIo {
     fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
 }
 
+pub trait AsciiCpuIo {
+    fn get_input_line_for_program(&mut self) -> Result<String, IntcodeError>;
+    fn accept_output_line_from_program(&mut self, output: &str) -> Result<(), IntcodeError>;
+}
+
 struct ComposedCpuIo<'a, R, W>
 where
     R: ReadNumber,
@@ -489,6 +494,78 @@ pub fn execute_with_channel(
     let mut input_trait_object = ChannelReadNumber { input };
     let mut output_trait_object = ChannelWriteNumber { output };
     execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
+}
+
+struct AsciiCpuState<'a, IO>
+where
+    IO: AsciiCpuIo,
+{
+    io: &'a mut IO,
+    program_input_bytes: Vec<u16>,
+    program_output_bytes: Vec<u8>,
+}
+
+impl<IO> AsciiCpuState<'_, IO>
+where
+    IO: AsciiCpuIo,
+{
+    fn create(io: &mut IO) -> AsciiCpuState<'_, IO> {
+        AsciiCpuState {
+            io,
+            program_input_bytes: Vec::new(),
+            program_output_bytes: Vec::new(),
+        }
+    }
+}
+
+impl<IO> CpuIo for AsciiCpuState<'_, IO>
+where
+    IO: AsciiCpuIo,
+{
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
+        Ok(())
+    }
+
+    fn read_number(&mut self) -> Result<i64, IntcodeError> {
+        if self.program_input_bytes.is_empty() {
+            // We put the bytes in reverse order so we can pop them out.
+            self.program_input_bytes.push('\n' as u16);
+            let output_string = self.io.get_input_line_for_program()?;
+            let output_string: Vec<_> = output_string.encode_utf16().collect();
+            for ch in output_string.into_iter().rev() {
+                self.program_input_bytes.push(ch);
+            }
+        }
+        Ok(self.program_input_bytes.pop().unwrap() as i64)
+    }
+
+    fn write_number(&mut self, num: i64) -> Result<(), IntcodeError> {
+        if num == '\n' as i64 {
+            let s: String = String::from_utf8(self.program_output_bytes.clone()).unwrap();
+            self.program_output_bytes.clear();
+            self.io.accept_output_line_from_program(&s)?;
+        } else {
+            self.program_output_bytes.push(num as u8);
+        }
+        Ok(())
+    }
+}
+
+pub fn execute_with_ascii_io<IO>(mem: &mut [i64], io: &mut IO) -> Result<(), IntcodeError>
+where
+    IO: AsciiCpuIo,
+{
+    let mut ascii_state = AsciiCpuState::create(io);
+    let mut cpu = CpuState::create(mem, &mut ascii_state);
+    if let Err(err) = cpu.execute() {
+        Err(err)
+    } else {
+        //Copy the changed memory back into the input array
+        for (i, value) in mem.iter_mut().enumerate() {
+            *value = cpu.load_raw(i.try_into().unwrap())?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
