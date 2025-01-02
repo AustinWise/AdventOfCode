@@ -503,6 +503,7 @@ where
     io: &'a mut IO,
     program_input_bytes: Vec<u16>,
     program_output_bytes: Vec<u8>,
+    non_ascii_output: Option<i64>,
 }
 
 impl<IO> AsciiCpuState<'_, IO>
@@ -514,6 +515,7 @@ where
             io,
             program_input_bytes: Vec::new(),
             program_output_bytes: Vec::new(),
+            non_ascii_output: None,
         }
     }
 }
@@ -544,6 +546,9 @@ where
             let s: String = String::from_utf8(self.program_output_bytes.clone()).unwrap();
             self.program_output_bytes.clear();
             self.io.accept_output_line_from_program(&s)?;
+        } else if num > 0xff {
+            assert!(self.non_ascii_output.is_none());
+            self.non_ascii_output = Some(num);
         } else {
             self.program_output_bytes.push(num as u8);
         }
@@ -551,7 +556,8 @@ where
     }
 }
 
-pub fn execute_with_ascii_io<IO>(mem: &mut [i64], io: &mut IO) -> Result<(), IntcodeError>
+// Returns the one non-ascii (greater than 0xFF) output seen, if any.
+pub fn execute_with_ascii_io<IO>(mem: &mut [i64], io: &mut IO) -> Result<Option<i64>, IntcodeError>
 where
     IO: AsciiCpuIo,
 {
@@ -564,7 +570,7 @@ where
         for (i, value) in mem.iter_mut().enumerate() {
             *value = cpu.load_raw(i.try_into().unwrap())?;
         }
-        Ok(())
+        Ok(ascii_state.non_ascii_output)
     }
 }
 
