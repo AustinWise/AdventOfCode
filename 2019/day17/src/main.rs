@@ -35,6 +35,7 @@ enum RobotDirection {
 
 enum Cell {
     Scaffold,
+    #[allow(dead_code)]
     RobotOnScaffold(RobotDirection),
     LostRobot,
 }
@@ -92,6 +93,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut mem = intcode::parse_program(include_str!("input.txt"))?;
     let mut state = CollectAscii::new();
     intcode::execute_with_ascii_io(&mut mem, &mut state)?;
+    for line in &state.lines {
+        println!("{}", line);
+    }
     let map = Map::create_from_lines(&state.lines);
     println!("part 1: {}", part_1_alignment_parameters(&map));
     Ok(())
@@ -99,7 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{part_1_alignment_parameters, Map};
+    use super::*;
 
     #[test]
     fn test_part1() {
