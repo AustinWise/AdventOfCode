@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Write;
 
 use intcode::AsciiCpuIo;
 use intcode::IntcodeError;
@@ -70,8 +73,23 @@ enum Cell {
     LostRobot,
 }
 
+impl Display for Cell {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_char(match self {
+            Cell::Scaffold => '#',
+            Cell::RobotOnScaffold(RobotDirection::Up) => '^',
+            Cell::RobotOnScaffold(RobotDirection::Right) => '>',
+            Cell::RobotOnScaffold(RobotDirection::Down) => 'V',
+            Cell::RobotOnScaffold(RobotDirection::Left) => '<',
+            Cell::LostRobot => 'X',
+        })
+    }
+}
+
 struct Map {
     cells: HashMap<Vec2, Cell>,
+    width: i32,
+    height: i32,
 }
 
 impl Map {
@@ -101,7 +119,15 @@ impl Map {
                 }
             }
         }
-        Self { cells }
+
+        let width = lines[0].len() as i32;
+        let height = lines.len() as i32;
+
+        Self {
+            cells,
+            width,
+            height,
+        }
     }
 
     fn get_nearby_cells(&self, cell: Vec2) -> Vec<(Vec2, Cell)> {
@@ -128,6 +154,19 @@ impl Map {
         }
 
         ret
+    }
+
+    fn print(&self) {
+        for y in 0..=self.height {
+            for x in 0..=self.width {
+                if let Some(cell) = self.cells.get(&Vec2::new(x, y)) {
+                    print!("{}", cell);
+                } else {
+                    print!(".");
+                }
+            }
+            println!();
+        }
     }
 }
 
@@ -164,7 +203,6 @@ fn make_command_list(map: &Map) -> Vec<Command> {
         .collect();
     assert_eq!(1, end.len());
     let end = *end[0].0;
-    println!("end: {:?}", end);
 
     let start: Vec<_> = map
         .cells
@@ -173,7 +211,6 @@ fn make_command_list(map: &Map) -> Vec<Command> {
         .collect();
     assert_eq!(1, start.len());
     let start = *start[0].0;
-    println!("start: {:?}", start);
 
     let mut unvisited_locations: HashMap<Vec2, ()> = HashMap::new();
     for (pos, cell) in map.cells.iter() {
@@ -227,14 +264,13 @@ fn make_command_list(map: &Map) -> Vec<Command> {
     ret
 }
 
+
 fn main() -> Result<(), Box<dyn Error>> {
     let mut mem = intcode::parse_program(include_str!("input.txt"))?;
     let mut state = CollectAscii::new();
     intcode::execute_with_ascii_io(&mut mem, &mut state)?;
-    for line in &state.lines {
-        println!("{}", line);
-    }
     let map = Map::create_from_lines(&state.lines);
+    map.print();
     println!("part 1: {}", part_1_alignment_parameters(&map));
 
     println!("part 2 commands: {:?}", make_command_list(&map));
