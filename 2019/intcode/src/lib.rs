@@ -574,6 +574,28 @@ where
     }
 }
 
+struct StdAsciiIo {}
+
+impl AsciiCpuIo for StdAsciiIo {
+    fn get_input_line_for_program(&mut self) -> Result<String, IntcodeError> {
+        let mut buf = String::new();
+        std::io::stdin().read_line(&mut buf)?;
+        let buf = buf.trim();
+        Ok(buf.to_string())
+    }
+
+    fn accept_output_line_from_program(&mut self, output: &str) -> Result<(), IntcodeError> {
+        println!("{}", output);
+        Ok(())
+    }
+}
+
+// Returns the one non-ascii (greater than 0xFF) output seen, if any.
+pub fn execute_with_std_ascii_io(mem: &mut [i64]) -> Result<Option<i64>, IntcodeError> {
+    let mut io = StdAsciiIo {};
+    execute_with_ascii_io(mem, &mut io)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
