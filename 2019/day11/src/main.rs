@@ -1,38 +1,8 @@
 use std::{collections::HashMap, error::Error};
 
-extern crate intcode;
-
 use intcode::CpuIo;
 use intcode::IntcodeError;
-
-#[derive(Clone, Copy)]
-enum Direction {
-    Up,
-    Right,
-    Down,
-    Left,
-}
-
-// TODO: perhaps we could define directions and turning in a more mathematical way.
-impl Direction {
-    fn turn_left(self) -> Self {
-        match self {
-            Direction::Up => Direction::Left,
-            Direction::Right => Direction::Up,
-            Direction::Down => Direction::Right,
-            Direction::Left => Direction::Down,
-        }
-    }
-
-    fn turn_right(&self) -> Self {
-        match self {
-            Direction::Up => Direction::Right,
-            Direction::Right => Direction::Down,
-            Direction::Down => Direction::Left,
-            Direction::Left => Direction::Up,
-        }
-    }
-}
+use utils::Direction;
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 struct Position {

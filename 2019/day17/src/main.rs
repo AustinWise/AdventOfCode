@@ -7,6 +7,7 @@ use std::fmt::Write;
 use intcode::AsciiCpuIo;
 use intcode::IntcodeError;
 use utils::Vec2;
+use utils::Direction;
 
 struct CollectAscii {
     lines: Vec<String>,
@@ -30,46 +31,9 @@ impl AsciiCpuIo for CollectAscii {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum RobotDirection {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-impl RobotDirection {
-    fn move_vector(self) -> Vec2 {
-        match self {
-            RobotDirection::Up => Vec2::new(0, -1),
-            RobotDirection::Down => Vec2::new(0, 1),
-            RobotDirection::Left => Vec2::new(-1, 0),
-            RobotDirection::Right => Vec2::new(1, 0),
-        }
-    }
-
-    fn turn_right(self) -> Self {
-        match self {
-            RobotDirection::Up => RobotDirection::Right,
-            RobotDirection::Right => RobotDirection::Down,
-            RobotDirection::Down => RobotDirection::Left,
-            RobotDirection::Left => RobotDirection::Up,
-        }
-    }
-
-    fn turn_left(self) -> Self {
-        match self {
-            RobotDirection::Up => RobotDirection::Left,
-            RobotDirection::Left => RobotDirection::Down,
-            RobotDirection::Down => RobotDirection::Right,
-            RobotDirection::Right => RobotDirection::Up,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
 enum Cell {
     Scaffold,
-    RobotOnScaffold(RobotDirection),
+    RobotOnScaffold(Direction),
     LostRobot,
 }
 
@@ -77,10 +41,10 @@ impl Display for Cell {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_char(match self {
             Cell::Scaffold => '#',
-            Cell::RobotOnScaffold(RobotDirection::Up) => '^',
-            Cell::RobotOnScaffold(RobotDirection::Right) => '>',
-            Cell::RobotOnScaffold(RobotDirection::Down) => 'V',
-            Cell::RobotOnScaffold(RobotDirection::Left) => '<',
+            Cell::RobotOnScaffold(Direction::Up) => '^',
+            Cell::RobotOnScaffold(Direction::Right) => '>',
+            Cell::RobotOnScaffold(Direction::Down) => 'V',
+            Cell::RobotOnScaffold(Direction::Left) => '<',
             Cell::LostRobot => 'X',
         })
     }
@@ -107,10 +71,10 @@ impl Map {
                         Vec2::new(x as i32, y as i32),
                         match ch {
                             '#' => Cell::Scaffold,
-                            '^' => Cell::RobotOnScaffold(RobotDirection::Up),
-                            'V' => Cell::RobotOnScaffold(RobotDirection::Down),
-                            '<' => Cell::RobotOnScaffold(RobotDirection::Left),
-                            '>' => Cell::RobotOnScaffold(RobotDirection::Right),
+                            '^' => Cell::RobotOnScaffold(Direction::Up),
+                            'V' => Cell::RobotOnScaffold(Direction::Down),
+                            '<' => Cell::RobotOnScaffold(Direction::Left),
+                            '>' => Cell::RobotOnScaffold(Direction::Right),
                             'X' => Cell::LostRobot,
                             _ => panic!("unexpected character: {}", ch),
                         },
