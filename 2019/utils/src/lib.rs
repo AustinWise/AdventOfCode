@@ -32,6 +32,15 @@ pub enum Direction {
 }
 
 impl Direction {
+    pub fn all() -> [Self; 4] {
+        [
+            Direction::Up,
+            Direction::Right,
+            Direction::Down,
+            Direction::Left,
+        ]
+    }
+
     pub fn move_vector(self) -> Vec2 {
         match self {
             Direction::Up => Vec2::new(0, -1),
