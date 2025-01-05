@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::ops::Shl;
 
 use utils::Direction;
 use utils::Vec2;
@@ -12,12 +15,44 @@ enum Cell {
     Door,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct KeyBitmap(usize);
+
+impl KeyBitmap {
+    fn new(ch: char) -> Self {
+        assert!(ch.is_ascii_lowercase());
+        let ndx = ch as usize - 'a' as usize;
+        Self(1usize.shl(ndx))
+    }
+
+    fn remove_key(self, ch: char) -> Self {
+        let other = Self::new(ch);
+        Self(self.0 & !other.0)
+    }
+
+    fn add_key(self, ch: char) -> Self {
+        let other = Self::new(ch);
+        Self(self.0 | other.0)
+    }
+
+    fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl Display for KeyBitmap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#b}", self.0)
+    }
+}
+
+#[derive(Clone)]
 struct Maze {
     start: Vec2,
     cells: Vec<Vec<Cell>>,
     // NOTE: not every key has a door
     door_locations: HashMap<char, Vec2>,
-    key_count: usize,
+    keys: KeyBitmap,
 }
 
 impl Maze {
@@ -34,7 +69,7 @@ impl Maze {
         let mut cells = Vec::new();
         let mut door_locations = HashMap::new();
 
-        let mut key_count = 0;
+        let mut keys = KeyBitmap(0);
         for (y, line) in lines.iter().enumerate() {
             let mut cell_row = Vec::new();
             for (x, ch) in line.chars().enumerate() {
@@ -42,7 +77,7 @@ impl Maze {
                     '#' => Cell::Wall,
                     '.' => Cell::Open,
                     'a'..='z' => {
-                        key_count += 1;
+                        keys = keys.add_key(ch);
                         Cell::Key(ch)
                     }
                     'A'..='Z' => {
@@ -66,7 +101,7 @@ impl Maze {
             start: start.unwrap(),
             cells,
             door_locations,
-            key_count,
+            keys,
         }
     }
 
@@ -89,12 +124,13 @@ impl Maze {
         let mut door_locations = self.door_locations.clone();
         let door_location = door_locations.remove(&key.to_ascii_uppercase());
         let cells = self.cells.clone();
+        let keys = self.keys.remove_key(key);
 
         let mut ret = Self {
             start: key_location,
             cells,
             door_locations,
-            key_count: self.key_count - 1,
+            keys,
         };
 
         *ret.get_cell_mut(key_location) = Cell::Open;
@@ -104,11 +140,20 @@ impl Maze {
 
         ret
     }
+}
 
-    fn find_shortest_path_through_maze(&self, moves_so_far: usize) -> usize {
-        if self.key_count == 0 {
+#[derive(Clone)]
+struct MazeSubSolution {
+    moves_so_far: usize,
+    start: Vec2,
+    maze: Maze,
+}
+
+impl MazeSubSolution {
+    fn find_more_sub_solutions(&self) -> Vec<MazeSubSolution> {
+        if self.maze.keys.is_empty() {
             // base case, all keys have been collected
-            return moves_so_far;
+            return Vec::new();
         }
 
         let mut seen: HashMap<Vec2, ()> = HashMap::new();
@@ -116,13 +161,13 @@ impl Maze {
 
         to_visit.push_back((self.start, 0));
 
-        let mut best = usize::MAX;
+        let mut ret = Vec::new();
         while let Some((pos, distance)) = to_visit.pop_front() {
             if seen.insert(pos, ()).is_some() {
                 continue;
             }
 
-            match self.get_cell(pos) {
+            match self.maze.get_cell(pos) {
                 Cell::Wall | Cell::Door => (),
                 Cell::Open => {
                     for dir in Direction::all() {
@@ -131,26 +176,71 @@ impl Maze {
                     }
                 }
                 Cell::Key(key) => {
-                    let maze = self.clone_with_door_removed(key, pos);
-                    let maze_score = maze.find_shortest_path_through_maze(moves_so_far + distance);
-                    best = usize::min(best, maze_score);
+                    let maze = self.maze.clone_with_door_removed(key, pos);
+                    ret.push(MazeSubSolution {
+                        maze,
+                        moves_so_far: self.moves_so_far + distance,
+                        start: pos,
+                    });
                 }
             }
         }
 
-        assert_ne!(usize::MAX, best);
-        best
+        ret
     }
 }
 
 fn find_shortest_path_through_maze(maze: &Maze) -> usize {
-    maze.find_shortest_path_through_maze(0)
+    let initial = MazeSubSolution {
+        maze: maze.clone(),
+        moves_so_far: 0,
+        start: maze.start,
+    };
+    let mut best_sub_solutions: HashMap<(KeyBitmap, Vec2), MazeSubSolution> = HashMap::new();
+    best_sub_solutions.insert((initial.maze.keys, initial.start), initial.clone());
+    let mut to_process = VecDeque::new();
+    to_process.push_back(initial);
+
+    let mut best = usize::MAX;
+    while let Some(maze) = to_process.pop_front() {
+        // first ensure we have not already found a better solution to get to this point
+        if let Some(best) = best_sub_solutions
+            .get(&(maze.maze.keys, maze.start))
+            .map(|m| m.moves_so_far)
+        {
+            if best < maze.moves_so_far {
+                continue;
+            }
+        } else {
+            panic!("we should have seen the sub solution by now");
+        }
+
+        if maze.maze.keys.is_empty() && maze.moves_so_far < best {
+            best = maze.moves_so_far;
+            continue;
+        }
+
+        for sub in maze.find_more_sub_solutions() {
+            if let Some(best) = best_sub_solutions
+                .get(&(sub.maze.keys, sub.start))
+                .map(|m| m.moves_so_far)
+            {
+                if best <= sub.moves_so_far {
+                    continue;
+                }
+            }
+            best_sub_solutions.insert((sub.maze.keys, sub.start), sub.clone());
+            to_process.push_back(sub);
+        }
+    }
+
+    assert_ne!(usize::MAX, best);
+    best
 }
 
 fn main() {
     let maze = Maze::parse(include_str!("input.txt"));
     println!("part 1: {}", find_shortest_path_through_maze(&maze));
-    println!("Hello, world!");
 }
 
 #[cfg(test)]
@@ -201,24 +291,22 @@ mod tests {
         assert_eq!(132, find_shortest_path_through_maze(&maze));
     }
 
-    /*
-        #[test]
-        fn test_case_2() {
-            let input = r#"
-    #################
-    #i.G..c...e..H.p#
-    ########.########
-    #j.A..b...f..D.o#
-    ########@########
-    #k.E..a...g..B.n#
-    ########.########
-    #l.F..d...h..C.m#
-    #################
+    #[test]
+    fn test_case_2() {
+        let input = r#"
+#################
+#i.G..c...e..H.p#
+########.########
+#j.A..b...f..D.o#
+########@########
+#k.E..a...g..B.n#
+########.########
+#l.F..d...h..C.m#
+#################
     "#;
-            let maze = Maze::parse(input);
-            assert_eq!(136, find_shortest_path_through_maze(&maze));
-        }
-        */
+        let maze = Maze::parse(input);
+        assert_eq!(136, find_shortest_path_through_maze(&maze));
+    }
 
     #[test]
     fn test_case_3() {
