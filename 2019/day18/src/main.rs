@@ -7,7 +7,7 @@ use std::ops::Shl;
 use utils::Direction;
 use utils::Vec2;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cell {
     Wall,
     Open,
@@ -142,15 +142,60 @@ impl Maze {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct SubSolutionKey {
+    keys: KeyBitmap,
+    robot_locations: Vec<Vec2>,
+}
+
 #[derive(Clone)]
 struct MazeSubSolution {
     moves_so_far: usize,
-    start: Vec2,
+    robot_locations: Vec<Vec2>,
     maze: Maze,
 }
 
 impl MazeSubSolution {
-    fn find_more_sub_solutions(&self) -> Vec<MazeSubSolution> {
+    fn make_key(&self) -> SubSolutionKey {
+        SubSolutionKey {
+            keys: self.maze.keys,
+            robot_locations: self.robot_locations.clone(),
+        }
+    }
+
+    fn create_initial_for_one_robot(maze: &Maze) -> Self {
+        Self {
+            maze: maze.clone(),
+            moves_so_far: 0,
+            robot_locations: vec![maze.start],
+        }
+    }
+
+    fn create_initial_for_four_robot(maze: &Maze) -> Self {
+        let start = maze.start;
+        let mut maze = maze.clone();
+        *maze.get_cell_mut(start) = Cell::Wall;
+        *maze.get_cell_mut(start + Vec2::new(0, 1)) = Cell::Wall;
+        *maze.get_cell_mut(start + Vec2::new(0, -1)) = Cell::Wall;
+        *maze.get_cell_mut(start + Vec2::new(-1, 0)) = Cell::Wall;
+        *maze.get_cell_mut(start + Vec2::new(1, 0)) = Cell::Wall;
+        assert_eq!(Cell::Open, maze.get_cell(start + Vec2::new(1, 1)));
+        assert_eq!(Cell::Open, maze.get_cell(start + Vec2::new(-1, 1)));
+        assert_eq!(Cell::Open, maze.get_cell(start + Vec2::new(1, -1)));
+        assert_eq!(Cell::Open, maze.get_cell(start + Vec2::new(-1, -1)));
+        Self {
+            maze,
+            moves_so_far: 0,
+            robot_locations: vec![
+                start + Vec2::new(1, 1),
+                start + Vec2::new(1, -1),
+                start + Vec2::new(-1, 1),
+                start + Vec2::new(-1, -1),
+            ],
+        }
+    }
+
+    fn find_more_sub_solutions(&self, start_ndx: usize) -> Vec<MazeSubSolution> {
         if self.maze.keys.is_empty() {
             // base case, all keys have been collected
             return Vec::new();
@@ -159,7 +204,7 @@ impl MazeSubSolution {
         let mut seen: HashMap<Vec2, ()> = HashMap::new();
         let mut to_visit: VecDeque<(Vec2, usize)> = VecDeque::new();
 
-        to_visit.push_back((self.start, 0));
+        to_visit.push_back((self.robot_locations[start_ndx], 0));
 
         let mut ret = Vec::new();
         while let Some((pos, distance)) = to_visit.pop_front() {
@@ -177,10 +222,12 @@ impl MazeSubSolution {
                 }
                 Cell::Key(key) => {
                     let maze = self.maze.clone_with_door_removed(key, pos);
+                    let mut robot_locations = self.robot_locations.clone();
+                    robot_locations[start_ndx] = pos;
                     ret.push(MazeSubSolution {
                         maze,
                         moves_so_far: self.moves_so_far + distance,
-                        start: pos,
+                        robot_locations,
                     });
                 }
             }
@@ -188,59 +235,65 @@ impl MazeSubSolution {
 
         ret
     }
+
+    fn find_shortest_path_through_maze(&self) -> usize {
+        let mut best_sub_solutions: HashMap<SubSolutionKey, MazeSubSolution> = HashMap::new();
+        best_sub_solutions.insert(self.make_key(), self.clone());
+        let mut to_process = VecDeque::new();
+        to_process.push_back(self.clone());
+
+        let mut best = usize::MAX;
+        while let Some(maze) = to_process.pop_front() {
+            // first ensure we have not already found a better solution to get to this point
+            if let Some(best) = best_sub_solutions
+                .get(&maze.make_key())
+                .map(|m| m.moves_so_far)
+            {
+                if best < maze.moves_so_far {
+                    continue;
+                }
+            } else {
+                panic!("we should have seen the sub solution by now");
+            }
+
+            if maze.maze.keys.is_empty() && maze.moves_so_far < best {
+                best = maze.moves_so_far;
+                continue;
+            }
+
+            for start_ndx in 0..maze.robot_locations.len() {
+                for sub in maze.find_more_sub_solutions(start_ndx) {
+                    let sub_key = sub.make_key();
+                    if let Some(best) = best_sub_solutions.get(&sub_key).map(|m| m.moves_so_far) {
+                        if best <= sub.moves_so_far {
+                            continue;
+                        }
+                    }
+                    best_sub_solutions.insert(sub_key, sub.clone());
+                    to_process.push_back(sub);
+                }
+            }
+        }
+
+        assert_ne!(usize::MAX, best);
+        best
+    }
 }
 
 fn find_shortest_path_through_maze(maze: &Maze) -> usize {
-    let initial = MazeSubSolution {
-        maze: maze.clone(),
-        moves_so_far: 0,
-        start: maze.start,
-    };
-    let mut best_sub_solutions: HashMap<(KeyBitmap, Vec2), MazeSubSolution> = HashMap::new();
-    best_sub_solutions.insert((initial.maze.keys, initial.start), initial.clone());
-    let mut to_process = VecDeque::new();
-    to_process.push_back(initial);
+    let initial = MazeSubSolution::create_initial_for_one_robot(maze);
+    initial.find_shortest_path_through_maze()
+}
 
-    let mut best = usize::MAX;
-    while let Some(maze) = to_process.pop_front() {
-        // first ensure we have not already found a better solution to get to this point
-        if let Some(best) = best_sub_solutions
-            .get(&(maze.maze.keys, maze.start))
-            .map(|m| m.moves_so_far)
-        {
-            if best < maze.moves_so_far {
-                continue;
-            }
-        } else {
-            panic!("we should have seen the sub solution by now");
-        }
-
-        if maze.maze.keys.is_empty() && maze.moves_so_far < best {
-            best = maze.moves_so_far;
-            continue;
-        }
-
-        for sub in maze.find_more_sub_solutions() {
-            if let Some(best) = best_sub_solutions
-                .get(&(sub.maze.keys, sub.start))
-                .map(|m| m.moves_so_far)
-            {
-                if best <= sub.moves_so_far {
-                    continue;
-                }
-            }
-            best_sub_solutions.insert((sub.maze.keys, sub.start), sub.clone());
-            to_process.push_back(sub);
-        }
-    }
-
-    assert_ne!(usize::MAX, best);
-    best
+fn find_shortest_path_through_maze_with_four_robots(maze: &Maze) -> usize {
+    let initial = MazeSubSolution::create_initial_for_four_robot(maze);
+    initial.find_shortest_path_through_maze()
 }
 
 fn main() {
     let maze = Maze::parse(include_str!("input.txt"));
     println!("part 1: {}", find_shortest_path_through_maze(&maze));
+    println!("part 2: {}", find_shortest_path_through_maze_with_four_robots(&maze));
 }
 
 #[cfg(test)]
@@ -320,5 +373,67 @@ mod tests {
 "#;
         let maze = Maze::parse(input);
         assert_eq!(81, find_shortest_path_through_maze(&maze));
+    }
+
+    #[test]
+    fn test_four_robots_1() {
+        let input = r#"
+#######
+#a.#Cd#
+##...##
+##.@.##
+##...##
+#cB#Ab#
+#######
+"#;
+        let maze = Maze::parse(input);
+        assert_eq!(8, find_shortest_path_through_maze_with_four_robots(&maze));
+    }
+
+    #[test]
+    fn test_four_robots_2(){
+        let input = r#"
+###############
+#d.ABC.#.....a#
+######...######
+######.@.######
+######...######
+#b.....#.....c#
+###############
+"#;
+        let maze = Maze::parse(input);
+        assert_eq!(24, find_shortest_path_through_maze_with_four_robots(&maze));
+    }
+
+    #[test]
+    fn test_four_robots_3(){
+        let input = r#"
+#############
+#DcBa.#.GhKl#
+#.###...#I###
+#e#d#.@.#j#k#
+###C#...###J#
+#fEbA.#.FgHi#
+#############
+"#;
+        let maze = Maze::parse(input);
+        assert_eq!(32, find_shortest_path_through_maze_with_four_robots(&maze));
+    }
+
+    #[test]
+    fn test_four_robots_4(){
+        let input = r#"
+#############
+#g#f.D#..h#l#
+#F###e#E###.#
+#dCba...BcIJ#
+#####.@.#####
+#nK.L...G...#
+#M###N#H###.#
+#o#m..#i#jk.#
+#############
+"#;
+        let maze = Maze::parse(input);
+        assert_eq!(72, find_shortest_path_through_maze_with_four_robots(&maze));
     }
 }
