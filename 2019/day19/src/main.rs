@@ -9,10 +9,6 @@ struct Part1State {
 }
 
 impl CpuIo for Part1State {
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
-        Ok(())
-    }
-
     fn read_number(&mut self) -> Result<i64, IntcodeError> {
         Ok(self.numbers_to_return.pop().unwrap())
     }

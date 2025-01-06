@@ -190,7 +190,9 @@ impl ReadNumber for ChannelReadNumber<'_> {
 
 trait WriteNumber {
     fn write_number(&mut self, num: i64) -> Result<(), IntcodeError>;
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
+        Ok(())
+    }
 }
 
 struct WriteWriteNumber<'a> {
@@ -222,16 +224,14 @@ impl WriteNumber for ChannelWriteNumber {
         self.output.send(num)?;
         Ok(())
     }
-
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
-        Ok(())
-    }
 }
 
 pub trait CpuIo {
     fn read_number(&mut self) -> Result<i64, IntcodeError>;
     fn write_number(&mut self, num: i64) -> Result<(), IntcodeError>;
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError>;
+    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
+        Ok(())
+    }
 }
 
 pub trait AsciiCpuIo {
@@ -524,10 +524,6 @@ impl<IO> CpuIo for AsciiCpuState<'_, IO>
 where
     IO: AsciiCpuIo,
 {
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
-        Ok(())
-    }
-
     fn read_number(&mut self) -> Result<i64, IntcodeError> {
         if self.program_input_bytes.is_empty() {
             // We put the bytes in reverse order so we can pop them out.

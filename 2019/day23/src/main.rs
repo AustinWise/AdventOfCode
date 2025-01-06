@@ -3,7 +3,6 @@ use std::sync::mpsc::channel;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::mpsc::Sender;
-use std::sync::mpsc::TryRecvError;
 use std::sync::LazyLock;
 use std::thread;
 use std::time::Duration;
@@ -36,10 +35,6 @@ struct ComputerIo {
 }
 
 impl CpuIo for ComputerIo {
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
-        Ok(())
-    }
-
     fn read_number(&mut self) -> Result<i64, IntcodeError> {
         if let Some(num) = self.incoming_buffer {
             self.incoming_buffer = None;

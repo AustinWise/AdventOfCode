@@ -73,10 +73,6 @@ struct Map {
 }
 
 impl CpuIo for Map {
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
-        Ok(())
-    }
-
     fn read_number(&mut self) -> Result<i64, IntcodeError> {
         assert!(self.pending_moving.is_none());
         for move_dir in MoveDirection::all() {

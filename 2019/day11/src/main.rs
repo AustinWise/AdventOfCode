@@ -90,9 +90,6 @@ impl CpuIo for State {
 
         Ok(())
     }
-    fn prompt_for_number(&mut self) -> Result<(), IntcodeError> {
-        Ok(())
-    }
 }
 
 fn init_computer() -> Result<(Vec<i64>, State), IntcodeError> {
