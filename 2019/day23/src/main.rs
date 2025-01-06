@@ -9,8 +9,9 @@ use std::time::Duration;
 
 use intcode::CpuIo;
 use intcode::IntcodeError;
+use intcode::Memory;
 
-static PROGRAM: LazyLock<Vec<i64>> =
+static PROGRAM: LazyLock<Memory> =
     LazyLock::new(|| intcode::parse_program(include_str!("input.txt")).unwrap());
 
 #[derive(Debug)]

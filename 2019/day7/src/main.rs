@@ -3,7 +3,7 @@ use std::error::Error;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread;
 
-extern crate intcode;
+use intcode::Memory;
 
 //TODO: make this not allocate so much?
 //TODO: make this a generator?
@@ -36,7 +36,7 @@ fn permutation(begin: i64, number_of_perms: u64) -> Vec<Vec<i64>> {
 }
 
 fn run_amplifier_controller_program(
-    program: &Vec<i64>,
+    program: &Memory,
     phase_setting: &Vec<i64>,
 ) -> Result<i64, Box<dyn Error>> {
     let mut input: i64 = 0;
@@ -55,7 +55,7 @@ fn run_amplifier_controller_program(
     Ok(input)
 }
 
-fn find_max_thruster(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
+fn find_max_thruster(program: &Memory) -> Result<i64, Box<dyn Error>> {
     let mut max_thrust = i64::MIN;
 
     for phase_setting in permutation(0, 5) {
@@ -66,7 +66,7 @@ fn find_max_thruster(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
 }
 
 fn run_amplifier_controller_program_part(
-    program: Vec<i64>,
+    program: Memory,
     input: Receiver<i64>,
     output: SyncSender<i64>,
 ) -> Result<(), intcode::IntcodeError> {
@@ -94,7 +94,7 @@ fn pump_feedback(
 }
 
 fn run_amplifier_controller_program_feedback(
-    program: &Vec<i64>,
+    program: &Memory,
     phase_setting: &[i64],
 ) -> Result<i64, intcode::IntcodeError> {
     let (feedback_front_send, feedback_front_recv) = sync_channel::<i64>(10);
@@ -135,7 +135,7 @@ fn run_amplifier_controller_program_feedback(
     pumper.join().unwrap()
 }
 
-fn find_max_thruster_feedback(program: &Vec<i64>) -> Result<i64, Box<dyn Error>> {
+fn find_max_thruster_feedback(program: &Memory) -> Result<i64, Box<dyn Error>> {
     let mut max_thrust = i64::MIN;
 
     for phase_setting in permutation(5, 5) {

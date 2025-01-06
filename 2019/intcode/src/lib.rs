@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::convert::TryInto;
 use std::error::Error;
 use std::fmt;
 use std::io::BufRead;
 use std::io::Write;
 use std::num::ParseIntError;
+use std::ops::Index;
+use std::ops::IndexMut;
 use std::sync::mpsc::{Receiver, RecvError, SendError, SyncSender};
 
 #[derive(Debug)]
@@ -64,7 +64,48 @@ impl fmt::Display for IntcodeError {
     }
 }
 
-pub fn parse_program(input: &str) -> Result<Vec<i64>, IntcodeError> {
+#[derive(Clone, Debug)]
+pub struct Memory(Vec<i64>);
+
+impl Memory {
+    fn load_raw(&self, index: i64) -> Result<i64, IntcodeError> {
+        if index < 0 {
+            Err(IntcodeError::IndexOutOfRange)
+        } else if let Some(num) = self.0.get(index as usize) {
+            Ok(*num)
+        } else {
+            Ok(0)
+        }
+    }
+
+    fn store_raw(&mut self, index: i64, value: i64) -> Result<(), IntcodeError> {
+        if index < 0 {
+            Err(IntcodeError::IndexOutOfRange)
+        } else {
+            let index = index as usize;
+            if index >= self.0.len() {
+                self.0.resize(index + 1, 0);
+            }
+            self.0[index] = value;
+            Ok(())
+        }
+    }
+}
+
+impl Index<usize> for Memory {
+    type Output = i64;
+    fn index(&self, index: usize) -> &Self::Output {
+        self.0.index(index)
+    }
+}
+
+impl IndexMut<usize> for Memory {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.0.index_mut(index)
+    }
+}
+
+pub fn parse_program(input: &str) -> Result<Memory, IntcodeError> {
     let mut v: Vec<i64> = Vec::new();
     for num_str in input.trim().split(',') {
         if let Ok(num) = num_str.parse::<i64>() {
@@ -73,7 +114,7 @@ pub fn parse_program(input: &str) -> Result<Vec<i64>, IntcodeError> {
             return Err(IntcodeError::ProgramParseError);
         }
     }
-    Ok(v)
+    Ok(Memory(v))
 }
 
 enum ParameterMode {
@@ -270,7 +311,7 @@ where
 {
     pc: i64,
     relative_base: i64,
-    mem: HashMap<i64, i64>,
+    mem: &'a mut Memory,
     io: &'a mut IO,
 }
 
@@ -278,35 +319,12 @@ impl<IO> CpuState<'_, IO>
 where
     IO: CpuIo,
 {
-    fn create<'a>(mem: &[i64], io: &'a mut IO) -> CpuState<'a, IO> {
-        let mut mem_map: HashMap<i64, i64> = HashMap::with_capacity(mem.len()); //TODO: consider using a faster hasher
-        for (i, num) in mem.iter().enumerate() {
-            mem_map.insert(i.try_into().unwrap(), *num);
-        }
+    fn create<'a>(mem: &'a mut Memory, io: &'a mut IO) -> CpuState<'a, IO> {
         CpuState {
             pc: 0,
             relative_base: 0,
-            mem: mem_map,
+            mem,
             io,
-        }
-    }
-
-    fn load_raw(&self, index: i64) -> Result<i64, IntcodeError> {
-        if index < 0 {
-            Err(IntcodeError::IndexOutOfRange)
-        } else if let Some(num) = self.mem.get(&index) {
-            Ok(*num)
-        } else {
-            Ok(0)
-        }
-    }
-
-    fn store_raw(&mut self, index: i64, value: i64) -> Result<(), IntcodeError> {
-        if index < 0 {
-            Err(IntcodeError::IndexOutOfRange)
-        } else {
-            self.mem.insert(index, value);
-            Ok(())
         }
     }
 
@@ -316,24 +334,26 @@ where
         mode: ParameterMode,
     ) -> Result<i64, IntcodeError> {
         let ret = match mode {
-            ParameterMode::Position => self.load_raw(self.pc + pc_rel)?,
+            ParameterMode::Position => self.mem.load_raw(self.pc + pc_rel)?,
             ParameterMode::Immediate => self.pc + pc_rel,
-            ParameterMode::Relative => self.relative_base + self.load_raw(self.pc + pc_rel)?,
+            ParameterMode::Relative => self.relative_base + self.mem.load_raw(self.pc + pc_rel)?,
         };
         Ok(ret)
     }
 
     fn load(&self, pc_rel: i64, mode: ParameterMode) -> Result<i64, IntcodeError> {
-        self.load_raw(self.load_effective_address(pc_rel, mode)?)
+        self.mem
+            .load_raw(self.load_effective_address(pc_rel, mode)?)
     }
 
     fn store(&mut self, pc_rel: i64, mode: ParameterMode, value: i64) -> Result<(), IntcodeError> {
-        self.store_raw(self.load_effective_address(pc_rel, mode)?, value)
+        self.mem
+            .store_raw(self.load_effective_address(pc_rel, mode)?, value)
     }
 
     fn execute_inner(&mut self) -> Result<(), IntcodeError> {
         loop {
-            match parse_instruction(self.load_raw(self.pc)?)? {
+            match parse_instruction(self.mem.load_raw(self.pc)?)? {
                 Opcode::Add(src1_mode, src2_mode, dst_mode) => {
                     self.store(
                         3,
@@ -416,24 +436,16 @@ where
     }
 }
 
-pub fn execute_with_io<IO>(mem: &mut [i64], io: &mut IO) -> Result<(), IntcodeError>
+pub fn execute_with_io<IO>(mem: &mut Memory, io: &mut IO) -> Result<(), IntcodeError>
 where
     IO: CpuIo,
 {
     let mut cpu = CpuState::create(mem, io);
-    if let Err(err) = cpu.execute() {
-        Err(err)
-    } else {
-        //Copy the changed memory back into the input array
-        for (i, value) in mem.iter_mut().enumerate() {
-            *value = cpu.load_raw(i.try_into().unwrap())?;
-        }
-        Ok(())
-    }
+    cpu.execute()
 }
 
 fn execute_composed<R, W>(
-    mem: &mut [i64],
+    mem: &mut Memory,
     input: &mut R,
     output: &mut W,
 ) -> Result<(), IntcodeError>
@@ -449,7 +461,7 @@ where
 }
 
 pub fn execute(
-    mem: &mut [i64],
+    mem: &mut Memory,
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
@@ -461,7 +473,7 @@ pub fn execute(
     execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
-pub fn execute_with_std_io(mem: &mut [i64]) -> Result<(), IntcodeError> {
+pub fn execute_with_std_io(mem: &mut Memory) -> Result<(), IntcodeError> {
     execute(
         mem,
         &mut std::io::stdin().lock(),
@@ -470,7 +482,7 @@ pub fn execute_with_std_io(mem: &mut [i64]) -> Result<(), IntcodeError> {
 }
 
 pub fn execute_no_prompt(
-    mem: &mut [i64],
+    mem: &mut Memory,
     input: &mut dyn BufRead,
     output: &mut dyn Write,
 ) -> Result<(), IntcodeError> {
@@ -482,12 +494,12 @@ pub fn execute_no_prompt(
     execute_composed(mem, &mut input_trait_object, &mut output_trait_object)
 }
 
-pub fn execute_no_io(mem: &mut [i64]) -> Result<(), IntcodeError> {
+pub fn execute_no_io(mem: &mut Memory) -> Result<(), IntcodeError> {
     execute(mem, &mut std::io::empty(), &mut std::io::sink())
 }
 
 pub fn execute_with_channel(
-    mem: &mut [i64],
+    mem: &mut Memory,
     input: &Receiver<i64>,
     output: SyncSender<i64>,
 ) -> Result<(), IntcodeError> {
@@ -553,21 +565,14 @@ where
 }
 
 // Returns the one non-ascii (greater than 0xFF) output seen, if any.
-pub fn execute_with_ascii_io<IO>(mem: &mut [i64], io: &mut IO) -> Result<Option<i64>, IntcodeError>
+pub fn execute_with_ascii_io<IO>(mem: &mut Memory, io: &mut IO) -> Result<Option<i64>, IntcodeError>
 where
     IO: AsciiCpuIo,
 {
     let mut ascii_state = AsciiCpuState::create(io);
     let mut cpu = CpuState::create(mem, &mut ascii_state);
-    if let Err(err) = cpu.execute() {
-        Err(err)
-    } else {
-        //Copy the changed memory back into the input array
-        for (i, value) in mem.iter_mut().enumerate() {
-            *value = cpu.load_raw(i.try_into().unwrap())?;
-        }
-        Ok(ascii_state.non_ascii_output)
-    }
+    cpu.execute()?;
+    Ok(ascii_state.non_ascii_output)
 }
 
 struct StdAsciiIo {}
@@ -587,7 +592,7 @@ impl AsciiCpuIo for StdAsciiIo {
 }
 
 // Returns the one non-ascii (greater than 0xFF) output seen, if any.
-pub fn execute_with_std_ascii_io(mem: &mut [i64]) -> Result<Option<i64>, IntcodeError> {
+pub fn execute_with_std_ascii_io(mem: &mut Memory) -> Result<Option<i64>, IntcodeError> {
     let mut io = StdAsciiIo {};
     execute_with_ascii_io(mem, &mut io)
 }
@@ -607,15 +612,15 @@ mod tests {
     fn test_parse() {
         parse_program("").expect_err("parse failed to fail");
         parse_program("turtle").expect_err("parse failed to fail");
-        assert_eq!(vec![0], parse_program("0").expect("parse failed"));
-        assert_eq!(vec![1, 2], parse_program("1,2").expect("parse failed"));
+        assert_eq!(vec![0], parse_program("0").expect("parse failed").0);
+        assert_eq!(vec![1, 2], parse_program("1,2").expect("parse failed").0);
     }
 
     fn test_a_program(input: &str, expected_output: &str) {
         let mut mem = parse_program(input).expect("failed to parse input");
         let expected_mem = parse_program(expected_output).expect("failed to parse input");
         execute_no_io(&mut mem).expect("execute failed");
-        assert_eq!(mem, expected_mem);
+        assert_eq!(mem.0, expected_mem.0);
     }
 
     #[test]

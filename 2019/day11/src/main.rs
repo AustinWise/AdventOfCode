@@ -2,6 +2,7 @@ use std::{collections::HashMap, error::Error};
 
 use intcode::CpuIo;
 use intcode::IntcodeError;
+use intcode::Memory;
 use utils::Direction;
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -92,7 +93,7 @@ impl CpuIo for State {
     }
 }
 
-fn init_computer() -> Result<(Vec<i64>, State), IntcodeError> {
+fn init_computer() -> Result<(Memory, State), IntcodeError> {
     let mem = intcode::parse_program(&std::fs::read_to_string("input.txt")?)?;
     let state = State::new();
     Ok((mem, state))

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-extern crate intcode;
+use intcode::Memory;
 
 #[derive(Debug)]
 enum MyError {
@@ -18,7 +18,7 @@ impl fmt::Display for MyError {
     }
 }
 
-fn part1(source: &[i64]) -> Result<(), intcode::IntcodeError> {
+fn part1(source: &Memory) -> Result<(), intcode::IntcodeError> {
     let mut mem = source.to_owned();
     mem[1] = 12;
     mem[2] = 2;
@@ -27,7 +27,7 @@ fn part1(source: &[i64]) -> Result<(), intcode::IntcodeError> {
     Ok(())
 }
 
-fn part2(source: &[i64]) -> Result<(), Box<dyn Error>> {
+fn part2(source: &Memory) -> Result<(), Box<dyn Error>> {
     for noun in 0..100 {
         for verb in 0..100 {
             let mut mem = source.to_owned();

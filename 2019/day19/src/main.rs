@@ -2,6 +2,7 @@ use std::error::Error;
 
 use intcode::CpuIo;
 use intcode::IntcodeError;
+use intcode::Memory;
 
 struct Part1State {
     numbers_to_return: Vec<i64>,
@@ -20,7 +21,7 @@ impl CpuIo for Part1State {
     }
 }
 
-fn part_1(mem: &[i64]) -> usize {
+fn part_1(mem: &Memory) -> usize {
     let mut ret = 0;
     for y in 0..50 {
         for x in 0..50 {
@@ -30,8 +31,14 @@ fn part_1(mem: &[i64]) -> usize {
             };
             intcode::execute_with_io(&mut mem.to_owned(), &mut state).unwrap();
             ret += match state.result.unwrap() {
-                0 => {print!("."); 0},
-                1 => {print!("#");1},
+                0 => {
+                    print!(".");
+                    0
+                }
+                1 => {
+                    print!("#");
+                    1
+                }
                 _ => panic!("unexpected"),
             }
         }
