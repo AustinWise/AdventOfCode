@@ -78,6 +78,7 @@ name = "day19"
 version = "0.1.0"
 dependencies = [
  "intcode",
+ "owo-colors",
  "utils",
 ]
 
@@ -153,6 +154,12 @@ checksum = "c65ee1f9701bf938026630b455d5315f490640234259037edb259798b3bcf85e"
 dependencies = [
  "num-traits",
 ]
+
+[[package]]
+name = "owo-colors"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb37767f6569cd834a413442455e0f066d0d522de8630436e2a1761d9726ba56"
 
 [[package]]
 name = "proc-macro2"
