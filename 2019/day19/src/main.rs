@@ -3,6 +3,7 @@ use std::error::Error;
 use intcode::CpuIo;
 use intcode::IntcodeError;
 use intcode::Memory;
+use utils::Vec2;
 
 struct Part1State {
     numbers_to_return: Vec<i64>,
@@ -21,25 +22,28 @@ impl CpuIo for Part1State {
     }
 }
 
+fn in_tractor_beam(mem: &Memory, point: Vec2) -> bool {
+    let mut state = Part1State {
+        numbers_to_return: vec![point.y.into(), point.x.into()],
+        result: None,
+    };
+    intcode::execute_with_io(&mut mem.to_owned(), &mut state).unwrap();
+    match state.result.unwrap() {
+        0 => false,
+        1 => true,
+        _ => panic!("unexpected"),
+    }
+}
+
 fn part_1(mem: &Memory) -> usize {
     let mut ret = 0;
     for y in 0..50 {
         for x in 0..50 {
-            let mut state = Part1State {
-                numbers_to_return: vec![y, x],
-                result: None,
-            };
-            intcode::execute_with_io(&mut mem.to_owned(), &mut state).unwrap();
-            ret += match state.result.unwrap() {
-                0 => {
-                    print!(".");
-                    0
-                }
-                1 => {
-                    print!("#");
-                    1
-                }
-                _ => panic!("unexpected"),
+            if in_tractor_beam(mem, Vec2::new(y, x)) {
+                print!("#");
+                ret += 1;
+            } else {
+                print!(".");
             }
         }
         println!();
