@@ -51,8 +51,39 @@ fn part_1(mem: &Memory) -> usize {
     ret
 }
 
+fn find_starting_point_core(mem: &Memory) -> Vec2 {
+    for wave_number in 1..20 {
+        for y in 0..=wave_number {
+            let candidate = Vec2::new(wave_number, y);
+            if in_tractor_beam(mem, candidate) {
+                return candidate;
+            }
+        }
+        for x in 0..=wave_number {
+            let candidate = Vec2::new(x, wave_number);
+            if in_tractor_beam(mem, candidate) {
+                return candidate;
+            }
+        }
+    }
+    panic!("did not find any points");
+}
+
+fn find_starting_point(mem: &Memory) -> Vec2 {
+    let point = find_starting_point_core(mem);
+    assert!(!in_tractor_beam(mem, point + Vec2::new(1, 0)));
+    assert!(!in_tractor_beam(mem, point - Vec2::new(1, 0)));
+    point
+}
+
+fn part_2(mem: &Memory) {
+    let start_point = find_starting_point(mem);
+    println!("start: {:?}", start_point);
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let mem = intcode::parse_program(include_str!("input.txt"))?;
     println!("part 1: {}", part_1(&mem));
+    part_2(&mem);
     Ok(())
 }

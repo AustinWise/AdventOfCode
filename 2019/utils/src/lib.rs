@@ -1,4 +1,5 @@
 use std::ops::Add;
+use std::ops::Sub;
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Vec2 {
@@ -19,6 +20,17 @@ impl Add for Vec2 {
         Self {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Sub for Vec2 {
+    type Output = Vec2;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
         }
     }
 }
@@ -66,5 +78,22 @@ impl Direction {
             Direction::Down => Direction::Right,
             Direction::Right => Direction::Up,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_add() {
+        let x = Vec2::new(1, 3) + Vec2::new(5, 7);
+        assert_eq!(x, Vec2::new(6, 10));
+    }
+
+    #[test]
+    fn test_sub() {
+        let x = Vec2::new(1, 3) - Vec2::new(5, 2);
+        assert_eq!(x, Vec2::new(-4, 1));
     }
 }
