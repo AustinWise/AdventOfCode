@@ -1,6 +1,8 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 
 use itertools::Itertools;
 
@@ -15,11 +17,31 @@ enum RawCell {
     Portal(char),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct PortalName {
+    is_inner: bool,
+    first_character: char,
+    second_character: char,
+}
+
+impl Debug for PortalName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {}{}",
+            if self.is_inner { "Inner" } else { "Outer" },
+            self.first_character,
+            self.second_character
+        )?;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Cell {
     Wall,
     Open,
-    Portal(char, char),
+    Portal(PortalName),
 }
 
 struct PortalLocations {
@@ -38,6 +60,7 @@ struct Maze {
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct ShortestPathNode {
     cost: usize,
+    level: usize,
     loc: Vec2,
 }
 
@@ -47,6 +70,7 @@ impl Ord for ShortestPathNode {
         other
             .cost
             .cmp(&self.cost)
+            .then_with(|| self.level.cmp(&other.level))
             .then_with(|| self.loc.y.cmp(&other.loc.y))
             .then_with(|| self.loc.x.cmp(&other.loc.x))
     }
@@ -74,10 +98,16 @@ impl Maze {
         dist.insert(self.start, 0);
         heap.push(ShortestPathNode {
             cost: 0,
+            level: 0,
             loc: self.start,
         });
 
-        while let Some(ShortestPathNode { cost, loc }) = heap.pop() {
+        while let Some(ShortestPathNode {
+            cost,
+            loc,
+            level: _,
+        }) = heap.pop()
+        {
             if loc == self.end {
                 return cost;
             }
@@ -92,10 +122,12 @@ impl Maze {
                 match next {
                     Cell::Open => Some(ShortestPathNode {
                         cost: cost + 1,
+                        level: 0,
                         loc: next_loc,
                     }),
-                    Cell::Portal(_, _) => Some(ShortestPathNode {
+                    Cell::Portal(_) => Some(ShortestPathNode {
                         cost: cost + 1,
+                        level: 0,
                         loc: *self.portal_map.get(&next_loc).unwrap(),
                     }),
                     Cell::Wall => None,
@@ -104,6 +136,59 @@ impl Maze {
                 if next.cost < *dist.get(&next.loc).unwrap_or(&usize::MAX) {
                     heap.push(next);
                     dist.insert(next.loc, next.cost);
+                }
+            }
+        }
+
+        panic!("No path!");
+    }
+
+    fn shortest_recursive_path_to_end(&self) -> usize {
+        let mut dist: HashMap<(Vec2, usize), usize> = HashMap::new();
+        let mut heap: BinaryHeap<ShortestPathNode> = BinaryHeap::new();
+
+        dist.insert((self.start, 0), 0);
+        heap.push(ShortestPathNode {
+            cost: 0,
+            level: 0,
+            loc: self.start,
+        });
+
+        while let Some(ShortestPathNode { cost, loc, level }) = heap.pop() {
+            if loc == self.end && level == 0 {
+                return cost;
+            }
+
+            if cost > *dist.get(&(loc, level)).unwrap_or(&usize::MAX) {
+                continue;
+            }
+
+            for next in Direction::all().iter().filter_map(|dir| {
+                let next_loc = loc + dir.move_vector();
+                let next = self.get_cell(next_loc);
+                match next {
+                    Cell::Open => Some(ShortestPathNode {
+                        cost: cost + 1,
+                        level,
+                        loc: next_loc,
+                    }),
+                    Cell::Portal(p) if level == 0 && !p.is_inner => None,
+                    Cell::Portal(p) => Some(ShortestPathNode {
+                        cost: cost + 1,
+                        level: if p.is_inner {
+                            level + 1
+                        } else {
+                            assert!(level > 0);
+                            level - 1
+                        },
+                        loc: *self.portal_map.get(&next_loc).unwrap(),
+                    }),
+                    Cell::Wall => None,
+                }
+            }) {
+                if next.cost < *dist.get(&(next.loc, next.level)).unwrap_or(&usize::MAX) {
+                    heap.push(next);
+                    dist.insert((next.loc, next.level), next.cost);
                 }
             }
         }
@@ -140,6 +225,7 @@ fn load_puzzle(input: &str) -> Maze {
 
     let height = raw_cells.len();
     let width = raw_cells[0].len();
+    let bottom_right_corner = Vec2::from_usize_or_panic(width - 1, height - 1);
 
     let mut grid: Vec<Vec<Cell>> = Vec::new();
     let mut portals: HashMap<(char, char), Vec<PortalLocations>> = HashMap::new();
@@ -221,7 +307,15 @@ fn load_puzzle(input: &str) -> Maze {
                                             letter_loc: loc,
                                             adjacent_loc: neighbor_open,
                                         });
-                                    Cell::Portal(first_character, second_character)
+                                    let is_outer = loc.x == 1
+                                        || loc.y == 1
+                                        || loc.x == bottom_right_corner.x - 1
+                                        || loc.y == bottom_right_corner.y - 1;
+                                    Cell::Portal(PortalName {
+                                        is_inner: !is_outer,
+                                        first_character,
+                                        second_character,
+                                    })
                                 }
                             }
                         } else {
@@ -261,8 +355,9 @@ fn load_puzzle(input: &str) -> Maze {
 }
 
 fn main() {
-    let grid = load_puzzle(include_str!("input.txt"));
-    println!("Part 1: {}", grid.shortest_path_to_end());
+    let maze = load_puzzle(include_str!("input.txt"));
+    println!("Part 1: {}", maze.shortest_path_to_end());
+    println!("Part 2: {}", maze.shortest_recursive_path_to_end());
 }
 
 #[cfg(test)]
@@ -341,5 +436,78 @@ YN......#               VT..#....QG
 ";
         let maze = load_puzzle(input);
         assert_eq!(58, maze.shortest_path_to_end());
+    }
+
+    #[test]
+    fn test_small_example_recursive() {
+        let input = "
+         A           
+         A           
+  #######.#########  
+  #######.........#  
+  #######.#######.#  
+  #######.#######.#  
+  #######.#######.#  
+  #####  B    ###.#  
+BC...##  C    ###.#  
+  ##.##       ###.#  
+  ##...DE  F  ###.#  
+  #####    G  ###.#  
+  #########.#####.#  
+DE..#######...###.#  
+  #.#########.###.#  
+FG..#########.....#  
+  ###########.#####  
+             Z       
+             Z       
+";
+        let maze = load_puzzle(input);
+        assert_eq!(26, maze.shortest_recursive_path_to_end());
+    }
+
+    #[test]
+    fn test_larger_example_recursive() {
+        let input = "
+
+             Z L X W       C                 
+             Z P Q B       K                 
+  ###########.#.#.#.#######.###############  
+  #...#.......#.#.......#.#.......#.#.#...#  
+  ###.#.#.#.#.#.#.#.###.#.#.#######.#.#.###  
+  #.#...#.#.#...#.#.#...#...#...#.#.......#  
+  #.###.#######.###.###.#.###.###.#.#######  
+  #...#.......#.#...#...#.............#...#  
+  #.#########.#######.#.#######.#######.###  
+  #...#.#    F       R I       Z    #.#.#.#  
+  #.###.#    D       E C       H    #.#.#.#  
+  #.#...#                           #...#.#  
+  #.###.#                           #.###.#  
+  #.#....OA                       WB..#.#..ZH
+  #.###.#                           #.#.#.#  
+CJ......#                           #.....#  
+  #######                           #######  
+  #.#....CK                         #......IC
+  #.###.#                           #.###.#  
+  #.....#                           #...#.#  
+  ###.###                           #.#.#.#  
+XF....#.#                         RF..#.#.#  
+  #####.#                           #######  
+  #......CJ                       NM..#...#  
+  ###.#.#                           #.###.#  
+RE....#.#                           #......RF
+  ###.###        X   X       L      #.#.#.#  
+  #.....#        F   Q       P      #.#.#.#  
+  ###.###########.###.#######.#########.###  
+  #.....#...#.....#.......#...#.....#.#...#  
+  #####.#.###.#######.#######.###.###.#.#.#  
+  #.......#.......#.#.#.#.#...#...#...#.#.#  
+  #####.###.#####.#.#.#.#.###.###.#.###.###  
+  #.......#.....#.#...#...............#...#  
+  #############.#.#.###.###################  
+               A O F   N                     
+               A A D   M                     
+";
+        let maze = load_puzzle(input);
+        assert_eq!(396, maze.shortest_recursive_path_to_end());
     }
 }
