@@ -108,8 +108,8 @@ fn run_computer_network(enable_nat: bool) {
     loop {
         // Ideally this would more preciously measure "idle": all the `ComputerIo` structs have
         // `incoming_buffer == None` and there are no messages in our switch channel.
-        // Instead we assume that if we have not recieved any messages at the switch for some period
-        // of time, the network is "idle". The larger the receive timeout, the more likly this is true.
+        // Instead we assume that if we have not received any messages at the switch for some period
+        // of time, the network is "idle". The larger the receive timeout, the more likely this is true.
         // It seems to work well enough 10 ms here and having each computer sleep 1 ms before considering
         // its incoming queue empty.
         let message = match switch_receiver.recv_timeout(Duration::from_millis(10)) {
@@ -150,8 +150,6 @@ fn run_computer_network(enable_nat: bool) {
                 } else {
                     println!("got part 1 message: {:?}", message);
                     println!("part 1: {}", message.y);
-                    println!();
-                    println!();
                     break;
                 }
             }
@@ -167,6 +165,8 @@ fn run_computer_network(enable_nat: bool) {
     }
 
     println!("all computer threads exited");
+    println!();
+    println!();
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
