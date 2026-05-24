@@ -11,6 +11,11 @@ impl Vec2 {
     pub fn new(x: i32, y: i32) -> Self {
         Vec2 { x, y }
     }
+    pub fn from_usize_or_panic(x: usize, y: usize) -> Self {
+        let x = x.try_into().unwrap();
+        let y = y.try_into().unwrap();
+        Vec2 { x, y }
+    }
 }
 
 impl Add for Vec2 {
