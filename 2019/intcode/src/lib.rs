@@ -580,9 +580,10 @@ struct StdAsciiIo {}
 impl AsciiCpuIo for StdAsciiIo {
     fn get_input_line_for_program(&mut self) -> Result<String, IntcodeError> {
         let mut buf = String::new();
-        std::io::stdin().read_line(&mut buf)?;
-        let buf = buf.trim();
-        Ok(buf.to_string())
+        match std::io::stdin().read_line(&mut buf)? {
+            0 => Err(IntcodeError::EOF),
+            _ => Ok(buf.trim().to_string()),
+        }
     }
 
     fn accept_output_line_from_program(&mut self, output: &str) -> Result<(), IntcodeError> {
